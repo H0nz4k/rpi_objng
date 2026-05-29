@@ -1,0 +1,12 @@
+{
+  "DATABASE_HOST": "",
+  "DATABASE_PORT": 10543,
+  "DATABASE_NAME": "jidelna",
+  "PCBOX_NAME": "NASTAV_NAZEV_TERMINALU",
+  "WELCOME_MESSAGE": "Vítáme Vás u objednávkového panelu naší školní jídelny.\nPřejeme Vám dobrou chuť!\nVáš kolektiv školní jídelny.",
+  "LOGOUT_TIMEOUT": 20000,
+  "SERIAL_READER_PORT": "",
+  "SERIAL_READER_BAUD_RATE": 19200,
+  "SERIAL_READER_DELIMITER": "\r",
+  "CURSOR_VISIBLE": true
+}

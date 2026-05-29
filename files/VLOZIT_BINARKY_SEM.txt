@@ -1,0 +1,12 @@
+Před spuštěním instalace vlož do této složky přesně tyto dva soubory:
+
+  objednavka-ng.AppImage   tvoje AppImage aplikace ObjednávkaNG
+  teamviewer.deb            TeamViewer Full ARM64 Debian balíček
+
+Potom v kořeni projektu spusť:
+
+  ./tools/build_SHA256SUMS.sh
+  sudo ./install.sh
+
+Poznámka pro GitHub: AppImage o velikosti 125 MB nepůjde vložit do běžného GitHub repozitáře
+(limit jednoho souboru je 100 MB). Použij Git LFS, GitHub Release asset nebo ZIP distribuuj mimo Git.
