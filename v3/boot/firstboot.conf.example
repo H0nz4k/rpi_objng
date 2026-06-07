@@ -1,0 +1,35 @@
+# Volitelna konfigurace pro /home/objng/firstboot/firstboot.conf
+# Kdyz soubor v IMG existuje, firstboot-install.sh jej nacte a nemusi se nic psat rucne.
+
+# Zaheslovany instalacni balik na CDN.
+PACKAGE_URL="https://cdn.public.altisima.cz/rpibox_install.7z"
+
+# Heslo k 7z baliku. Stejne heslo pouzij pri vytvareni baliku z v3/install.
+# Pozor: kdo ziska IMG, umi si heslo z tohoto souboru precist.
+PACKAGE_PASSWORD="ZMENIT_NA_VLASTNI_HESLO"
+
+# Bez volby bude zarizeni v TeamVieweru pojmenovane jen RPIBOX.
+# S hodnotou napr. "KUCHYNE-01" vznikne RPIBOX-KUCHYNE-01.
+TEAMVIEWER_ALIAS_SUFFIX=""
+
+# Volitelne trvale TeamViewer heslo. Kdyz zustane prazdne, heslo se nenastavi.
+TEAMVIEWER_PASSWORD=""
+
+# 1 = pri assignmentu vynutit opakovane prirazeni stejneho zarizeni.
+TEAMVIEWER_REASSIGN=1
+
+# Jak dlouho zustane IP obrazovka cekat, nez automaticky pokracuje.
+AUTO_CONTINUE_SECONDS=20
+
+# Po chybe firstboot sam restartuje zarizeni a zkusi pokracovat.
+FIRSTBOOT_RETRY_SECONDS=20
+
+# Po kolika neuspesnych pokusech volitelne predpripravy prejde rovnou ke stazeni hlavniho baliku.
+FIRSTBOOT_MAX_STEP_RETRIES=3
+
+# Kdyz neni dostupna sit nebo CDN balik, stav zustane download_main.
+# Skript se po rebootu spusti znovu a bude stazeni opakovat, dokud hlavni install.sh nedobehne.
+
+# 0 = automaticky rezim pro touch-only zarizeni.
+# 1 = povoli nektere dotazy a pokusi se otevrit obrazovkovou klavesnici.
+OBJNG_INTERACTIVE=0

@@ -1,87 +1,162 @@
-# ObjednávkaNG – Raspberry Pi Terminal Installer
+# ObjednavkaNG RPi Linux Installer
 
-**Verze:** `0.7.0`  
-**Stav:** vývojový / připravený pro první test čisté instalace  
-**Cílový systém:** Raspberry Pi OS Desktop (Wayland / labwc), ARM64
+Aktualni smer je **v3 firstboot + zaheslovany instalacni balik**.
 
-Instalační projekt připravuje Raspberry Pi terminál pro aplikaci **ObjednávkaNG**. Instalace je navržená jako offline wizard: AppImage a TeamViewer `.deb` vložíš lokálně do `files/`, zařízení si pak stáhne pouze potřebné systémové balíčky přes `apt`.
+Repo obsahuje jen skripty, sablony a dokumentaci. Produkcni binarky, realny `config.json`, TeamViewer `.deb`, AppImage, EETI archiv a vygenerovany `rpibox_install.7z` se do Gitu neposilaji.
 
-## Co instalátor umí
-
-- vytvoří provozní strukturu `/opt/objednavka-ng/`,
-- před prvním spuštěním aplikace nainstaluje `config.json` a vytvoří symlink pro pohodlnou editaci,
-- nainstaluje aplikaci z `files/objednavka-ng.AppImage`,
-- detekuje sériovou čtečku v `/dev/serial/by-id/` a po potvrzení zapíše `SERIAL_READER_PORT`,
-- nastaví hostname `rpi-pcbox` a Desktop Autologin uživatele `objng`,
-- nainstaluje boot splash a zapíše `disable_splash=1` + `boot_delay_ms=4000`,
-- nastaví trvalé zvětšení displeje `scale 1.25`,
-- připraví Wayland/labwc kiosk režim bez viditelné plochy a panelu,
-- nainstaluje TeamViewer Full z `files/teamviewer.deb` a nabídne bezpečné dokončení účtu/hesla,
-- podporuje ověřený touch preset pro 3M USB panel a rozpozná eGalax variantu pro oficiální EETI kalibraci.
-
-## Touchscreen: 3M vs. eGalax
-
-Automatická matice `0 -1 1 -1 0 1` je aktivována pouze pro ověřený **3M USB** panel. U `eGalaxTouch Virtual Device for Single` byl ve výpisu vidět stav `Calibration: n/a`; instalační wizard jej tedy rozpozná, ale automaticky na něj libinput matici neaplikuje a navede na oficiální EETI kalibraci.
-
-## Příprava lokálních souborů
-
-Do složky `files/` vlož před instalací:
+## Struktura
 
 ```text
-objednavka-ng.AppImage   # aplikace – nevkládá se do běžného Gitu
-teamviewer.deb            # TeamViewer Full ARM64 – nevkládá se do běžného Gitu
-config.json               # lokální produkční config – nevkládá se do běžného Gitu
+v3/
+  boot/      soubory primo do pripraveneho IMG
+  install/   obsah instalacniho baliku stahovaneho ze serveru
 ```
 
-V ZIPu je přiložen lokální `files/config.json` pro pokračování práce; díky `.gitignore` se při běžném `git add .` neodešle do repozitáře. Verzovaná šablona je `files/config.example.json`.
+Podrobny navod je v:
 
-## Instalace na čisté Raspberry Pi
+```text
+v3/README.md
+```
 
-V Raspberry Pi Imageru vytvoř uživatele `objng`. Na Raspberry potom:
+## IMG cast
+
+Do pripraveneho Raspberry Pi IMG nahraj obsah:
+
+```text
+v3/boot/
+```
+
+na Raspberry typicky sem:
 
 ```bash
-chmod +x install.sh tools/*.sh scripts/*.sh
-./tools/build_SHA256SUMS.sh
-sudo ./install.sh
-sudo reboot
-objng-dokoncit
+/home/objng/firstboot/
 ```
 
-Po ověření čtečky, TeamVieweru a dotyku:
+Minimalne:
+
+```text
+firstboot-install.sh
+firstboot.conf
+touch_calibrator_v3.py
+prepare-image-autostart.sh
+```
+
+`firstboot.conf` vytvor podle:
+
+```text
+v3/boot/firstboot.conf.example
+```
+
+Po nahrani na Raspberry nastav autologin a firstboot autostart:
 
 ```bash
-kiosk-on
-sudo reboot
+sudo bash /home/objng/firstboot/prepare-image-autostart.sh
 ```
 
-## Servisní příkazy
+Tenhle krok nastavi autologin profilu `objng`, graficky boot target a firstboot autostart.
+
+## Zaheslovany balik
+
+Obsah `v3/install` se bali do:
+
+```text
+v3/rpibox_install.7z
+```
+
+Build:
 
 ```bash
-gui-on                    # ihned zobrazí plochu a panel
-gui-off                   # ihned skryje plochu a panel
-nastavit-ctecku           # nabídne zápis čtečky do configu
-touch-setup               # rozpozná 3M/eGalax a navrhne postup
-touch-preset status       # stav 3M korekce
-kalibrace                 # jemná kalibrace pro 3M/libinput cestu
-kiosk-on                  # čistý kiosk pro příští reboot
-kiosk-off --now           # vrátí GUI ihned i pro další reboot
-objednavka-kiosk status   # stav kiosku
-zvetseni-status           # stav scale 1.25
-objng-dokoncit            # dokončovací wizard
-teamviewer-dokoncit       # TeamViewer účet, heslo a update krok
+cd /c/Work/projects/objng_rpi_linux/objednavka-ng-rpi-installer/v3
+PACKAGE_PASSWORD='stejne-heslo-jako-v-firstboot.conf' ./build-encrypted-package.sh
 ```
+
+Archiv se vytvari s `-mhe=on`, takze bez hesla nejsou videt ani nazvy souboru.
+
+Upload na devel:
+
+```powershell
+scp -P 10022 "C:\Work\projects\objng_rpi_linux\objednavka-ng-rpi-installer\v3\rpibox_install.7z" honza@devel.altisima.cz:/home/honza/
+```
+
+Presun na CDN:
+
+```bash
+ssh -p 10022 honza@devel.altisima.cz
+sudo mv /home/honza/rpibox_install.7z /altisima/cdn/public/rpibox_install.7z
+sudo chmod 644 /altisima/cdn/public/rpibox_install.7z
+```
+
+Firstboot stahuje:
+
+```text
+https://cdn.public.altisima.cz/rpibox_install.7z
+```
+
+## Retry chovani
+
+Firstboot se nesmi zaseknout po jedne chybe.
+
+Dokud neexistuje:
+
+```bash
+/home/objng/.local/state/objednavka-ng-firstboot/done
+```
+
+spousti se po startu znovu.
+
+Kdyz neni sit nebo CDN balik neni dostupny, stav zustane:
+
+```text
+download_main
+```
+
+a skript zkusi stazeni znovu po dalsim rebootu.
+
+TeamViewer a touch priprava jsou volitelne predkroky. Jejich selhani nesmi blokovat stazeni hlavniho baliku.
 
 ## TeamViewer
 
-Installer instaluje **TeamViewer Full ARM64** z lokálního `files/teamviewer.deb` a zapíná službu `teamviewerd` při startu systému. `teamviewer-dokoncit` nabídne `teamviewer setup`, připomene e-mail `hamouz@altisima.cz`, nabídne `teamviewer passwd` a blokování APT aktualizace balíčku. Patch češtiny/LAN režimu je přiložen jako experimentální a vždy vytváří zálohu; volby se následně ověřují v GUI.
+Firstboot a `teamviewer-dokoncit` umi:
 
-## Git workflow
+- nastavit nazev `RPIBOX` nebo `RPIBOX-<suffix>`,
+- nastavit volitelne trvale heslo,
+- provest assignment,
+- zapnout cestinu a LAN rezim,
+- zakazat APT aktualizace TeamViewer baliku,
+- zapnout sluzbu `teamviewerd` po startu.
 
-Postup pro první push z Windows je v [`docs/GIT_PUSH_WINDOWS.md`](docs/GIT_PUSH_WINDOWS.md). Před commitem spusť:
+## Touch
 
-```bash
-./tools/validate_project.sh
-git status --ignored
+Podporovane cesty:
+
+```text
+3M USB 0596:0001
+eGalax USB 0eef:0001
 ```
 
-`files/objednavka-ng.AppImage`, `files/teamviewer.deb`, `files/config.json` a `files/SHA256SUMS` jsou záměrně ignorované, aby se neodeslaly omylem na Git.
+3M kalibrator po poslednim bodu automaticky zapise pravidlo, zavre fullscreen okno a vyzada reboot.
+
+eGalax pouziva oficialni EETI driver a `eCalib`; po instalaci driveru a po kalibraci se vynuti reboot.
+
+## Co se necommituje
+
+Ignorovane soubory:
+
+```text
+*.deb
+*.AppImage
+*.7z
+*.tar.gz
+files/config.json
+files/SHA256SUMS
+v3/boot/firstboot.conf
+v3/rpibox_install.7z
+v3/install/files/config.json
+```
+
+## Overeni
+
+```bash
+bash -n v3/boot/firstboot-install.sh v3/boot/prepare-image-autostart.sh v3/build-encrypted-package.sh v3/install/install.sh v3/install/scripts/*.sh
+python -m py_compile v3/boot/touch_calibrator_v3.py v3/install/scripts/touch_calibrator_v3.py
+```

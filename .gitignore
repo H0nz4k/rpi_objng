@@ -6,9 +6,17 @@ files/SHA256SUMS
 
 # Release artefakty a logy
 *.zip
+*.7z
+*.tar.gz
 *.log
 *.deb
 *.AppImage
+
+# v3 IMG / CDN citlive vstupy
+v3/boot/firstboot.conf
+v3/rpibox_install.7z
+v3/install/files/config.json
+v3/install/files/SHA256SUMS
 
 # Python / OS / editory
 __pycache__/
