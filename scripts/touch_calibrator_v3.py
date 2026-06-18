@@ -1,18 +1,11 @@
 #!/usr/bin/env python3
+"""ObjednavkaNG 3M calibrator v4.1.
+
+Calibrates 3M 0596:0001 using a full-range affine mapping limited to
+swap/invert + independent scale/offset. This corrects panels whose real raw
+range occupies only part of the kernel-advertised ABS range, while avoiding
+shear and unstable arbitrary affine transforms.
 """
-ObjednávkaNG Touch Calibrator v3 for Raspberry Pi OS / Wayland / libinput
-
-- Reads RAW touch coordinates directly from /dev/input/eventX via python-evdev.
-- Draws calibration targets in fullscreen using tkinter.
-- Fits a complete affine transform:
-      screen_x = a * raw_x + b * raw_y + c
-      screen_y = d * raw_x + e * raw_y + f
-- Generates an udev rule with LIBINPUT_CALIBRATION_MATRIX="a b c d e f".
-
-Designed for touchscreen devices exposed through Linux evdev/libinput.
-Supported profile in this calibrator: 3M USB 0596:0001.\nFor eGalax 0eef:0001 use the official EETI eCalib utility via the command: kalibrace.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -21,142 +14,132 @@ import os
 import queue
 import shlex
 import statistics
-import subprocess
 import sys
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
-try:
-    from evdev import InputDevice, ecodes, list_devices
-except ImportError:
-    print("Chybí modul python3-evdev. Spusť instalační skript.", file=sys.stderr)
-    raise SystemExit(2)
+from evdev import InputDevice, ecodes, list_devices
+import tkinter as tk
 
-try:
-    import tkinter as tk
-except ImportError:
-    print("Chybí python3-tk. Spusť instalační skript.", file=sys.stderr)
-    raise SystemExit(2)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from labwc_tk_helper import schedule_labwc_fullscreen, setup_tk_fullscreen  # noqa: E402
 
+WM_CLASS = "ObjngTouchCalibrator"
+WINDOW_TITLE = "ObjednavkaNG - kalibrace 3M touch"
 
 VENDOR_ID = 0x0596
 PRODUCT_ID = 0x0001
-DEVICE_NAME_HINT = "touchscreen"
 RULE_FILENAME = "99-objednavka-ng-touchscreen-calibration.rules"
 STATE_DIR = Path.home() / ".local" / "state" / "objednavka-ng-touch-calibrator"
 
 
-@dataclass
+@dataclass(frozen=True)
 class AxisInfo:
     code: int
     minimum: int
     maximum: int
 
 
-@dataclass
+@dataclass(frozen=True)
 class Tap:
     raw_x: int
     raw_y: int
     samples: int
 
 
+@dataclass(frozen=True)
+class Orientation:
+    name: str
+    matrix: tuple[float, float, float, float, float, float]
+    transform: Callable[[float, float], tuple[float, float]]
+
+
+ORIENTATIONS = (
+    Orientation("normal", (1, 0, 0, 0, 1, 0), lambda x, y: (x, y)),
+    Orientation("invert-x", (-1, 0, 1, 0, 1, 0), lambda x, y: (1 - x, y)),
+    Orientation("invert-y", (1, 0, 0, 0, -1, 1), lambda x, y: (x, 1 - y)),
+    Orientation("invert-both", (-1, 0, 1, 0, -1, 1), lambda x, y: (1 - x, 1 - y)),
+    Orientation("swap", (0, 1, 0, 1, 0, 0), lambda x, y: (y, x)),
+    Orientation("swap-invert-x", (0, -1, 1, 1, 0, 0), lambda x, y: (1 - y, x)),
+    Orientation("swap-invert-y", (0, 1, 0, -1, 0, 1), lambda x, y: (y, 1 - x)),
+    Orientation("swap-invert-both", (0, -1, 1, -1, 0, 1), lambda x, y: (1 - y, 1 - x)),
+)
+
+
 def fmt(value: float) -> str:
-    """Format matrix numbers compactly while avoiding negative zero."""
     if abs(value) < 0.0000005:
         value = 0.0
-    return f"{value:.6f}".rstrip("0").rstrip(".") or "0"
-
-
-def find_touch_device(explicit_path: Optional[str] = None) -> InputDevice:
-    if explicit_path:
-        return InputDevice(explicit_path)
-
-    usable: list[InputDevice] = []
-    details: list[str] = []
-    for path in list_devices():
-        try:
-            dev = InputDevice(path)
-            choose_axes(dev)
-        except (OSError, RuntimeError):
-            continue
-
-        name = dev.name.lower()
-        keys = touch_keys(dev)
-        looks_like_touch = bool(keys) or any(token in name for token in ("touch", "egalax", "eeti"))
-        if looks_like_touch:
-            usable.append(dev)
-            details.append(f"{path}: {dev.name} ({dev.info.vendor:04x}:{dev.info.product:04x})")
-
-    if len(usable) == 1:
-        return usable[0]
-    if len(usable) > 1:
-        raise RuntimeError(
-            "Nalezeno více dotykových zařízení. Spusť kalibraci s --device /dev/input/eventX.\n"
-            + "\n".join(details)
-        )
-    raise RuntimeError(
-        "Nebyl nalezen žádný použitelný touchscreen přes evdev/libinput.\n"
-        "Pokud používáš proprietární EETI driver, bude možná nutná jeho vlastní kalibrace."
-    )
+    return f"{value:.7f}".rstrip("0").rstrip(".") or "0"
 
 
 def choose_axes(dev: InputDevice) -> tuple[AxisInfo, AxisInfo]:
-    # absinfo=False je zásadní: jinak python-evdev vrací pro EV_ABS
-    # dvojice (code, AbsInfo), a samotné kódy ABS_X/ABS_Y nelze najít.
-    caps = dev.capabilities(absinfo=False)
-    abs_codes = set(caps.get(ecodes.EV_ABS, []))
-
-    candidates = [
+    codes = set(dev.capabilities(absinfo=False).get(ecodes.EV_ABS, []))
+    for x_code, y_code in (
         (ecodes.ABS_X, ecodes.ABS_Y),
         (ecodes.ABS_MT_POSITION_X, ecodes.ABS_MT_POSITION_Y),
-    ]
-    for x_code, y_code in candidates:
-        if x_code in abs_codes and y_code in abs_codes:
-            x_info = dev.absinfo(x_code)
-            y_info = dev.absinfo(y_code)
-            if x_info is None or y_info is None:
-                continue
-            if x_info.max == x_info.min or y_info.max == y_info.min:
-                continue
-            return (
-                AxisInfo(x_code, x_info.min, x_info.max),
-                AxisInfo(y_code, y_info.min, y_info.max),
-            )
-    raise RuntimeError("Zařízení neposkytuje použitelnou dvojici absolutních os X/Y.")
+    ):
+        if x_code in codes and y_code in codes:
+            xi = dev.absinfo(x_code)
+            yi = dev.absinfo(y_code)
+            if xi and yi and xi.max != xi.min and yi.max != yi.min:
+                return AxisInfo(x_code, xi.min, xi.max), AxisInfo(y_code, yi.min, yi.max)
+    raise RuntimeError("Touch nema pouzitelne absolutni osy X/Y.")
 
 
 def touch_keys(dev: InputDevice) -> set[int]:
-    caps = dev.capabilities()
-    keys = set(caps.get(ecodes.EV_KEY, []))
-    supported = {
+    keys = set(dev.capabilities(absinfo=False).get(ecodes.EV_KEY, []))
+    return {
         code for code in (
             getattr(ecodes, "BTN_TOUCH", -1),
             getattr(ecodes, "BTN_TOOL_FINGER", -1),
             getattr(ecodes, "BTN_LEFT", -1),
-        )
-        if code in keys
+        ) if code in keys
     }
-    return supported
+
+
+def find_touch_device(explicit: Optional[str] = None) -> InputDevice:
+    if explicit:
+        dev = InputDevice(explicit)
+        choose_axes(dev)
+        return dev
+
+    candidates: list[tuple[int, str]] = []
+    for path in list_devices():
+        try:
+            dev = InputDevice(path)
+            if dev.info.vendor != VENDOR_ID or dev.info.product != PRODUCT_ID:
+                continue
+            choose_axes(dev)
+            name = (dev.name or "").lower()
+            score = 0
+            if touch_keys(dev):
+                score += 100
+            if "touchscreen" in name:
+                score += 30
+            if "ex ii" in name:
+                score += 20
+            candidates.append((score, path))
+        except (OSError, RuntimeError):
+            continue
+    if not candidates:
+        raise RuntimeError("Nebyl nalezen 3M touchscreen 0596:0001.")
+    candidates.sort(reverse=True)
+    return InputDevice(candidates[0][1])
 
 
 class RawTouchReader(threading.Thread):
-    def __init__(
-        self,
-        dev: InputDevice,
-        x_axis: AxisInfo,
-        y_axis: AxisInfo,
-        out_queue: "queue.Queue[tuple[str, object]]",
-    ) -> None:
+    def __init__(self, dev: InputDevice, x_axis: AxisInfo, y_axis: AxisInfo,
+                 events: "queue.Queue[tuple[str, object]]") -> None:
         super().__init__(daemon=True)
         self.dev = dev
         self.x_axis = x_axis
         self.y_axis = y_axis
-        self.out_queue = out_queue
-        self.stop_requested = threading.Event()
-        self.key_codes = touch_keys(dev)
+        self.events = events
+        self.stop_event = threading.Event()
+        self.keys = touch_keys(dev)
         self.current_x: Optional[int] = None
         self.current_y: Optional[int] = None
         self.touching = False
@@ -164,73 +147,54 @@ class RawTouchReader(threading.Thread):
         self.grabbed = False
 
     def stop(self) -> None:
-        self.stop_requested.set()
+        self.stop_event.set()
         try:
             if self.grabbed:
                 self.dev.ungrab()
+                self.grabbed = False
         except OSError:
             pass
 
-    def _begin(self) -> None:
-        self.touching = True
-        self.samples = []
-
-    def _sample(self) -> None:
-        if self.touching and self.current_x is not None and self.current_y is not None:
+    def finish_tap(self) -> None:
+        if self.current_x is not None and self.current_y is not None:
             self.samples.append((self.current_x, self.current_y))
-
-    def _finish(self) -> None:
-        self._sample()
-        self.touching = False
-        if not self.samples:
-            return
-        xs = [p[0] for p in self.samples]
-        ys = [p[1] for p in self.samples]
-        tap = Tap(round(statistics.median(xs)), round(statistics.median(ys)), len(self.samples))
-        self.out_queue.put(("tap", tap))
+        if self.samples:
+            xs = [p[0] for p in self.samples]
+            ys = [p[1] for p in self.samples]
+            self.events.put(("tap", Tap(round(statistics.median(xs)), round(statistics.median(ys)), len(self.samples))))
         self.samples = []
+        self.touching = False
 
     def run(self) -> None:
-        if not self.key_codes:
-            self.out_queue.put((
-                "error",
-                "Touch zařízení neposílá BTN_TOUCH/BTN_TOOL_FINGER/BTN_LEFT; "
-                "tento typ protokolu je potřeba doplnit do skriptu.",
-            ))
+        if not self.keys:
+            self.events.put(("error", "Touch neposila BTN_TOUCH/BTN_LEFT."))
             return
-
         try:
             self.dev.grab()
             self.grabbed = True
         except OSError as exc:
-            self.out_queue.put((
-                "warning",
-                f"Nepodařilo se uzamknout touchscreen ({exc}). "
-                "Kalibrace poběží, ale dotyky mohou současně klikat do desktopu.",
-            ))
-
+            self.events.put(("warning", f"Nelze uzamknout touch: {exc}"))
         try:
             for event in self.dev.read_loop():
-                if self.stop_requested.is_set():
-                    return
-
+                if self.stop_event.is_set():
+                    break
                 if event.type == ecodes.EV_ABS:
                     if event.code == self.x_axis.code:
                         self.current_x = event.value
                     elif event.code == self.y_axis.code:
                         self.current_y = event.value
-
-                elif event.type == ecodes.EV_KEY and event.code in self.key_codes:
+                elif event.type == ecodes.EV_KEY and event.code in self.keys:
                     if event.value == 1 and not self.touching:
-                        self._begin()
+                        self.touching = True
+                        self.samples = []
                     elif event.value == 0 and self.touching:
-                        self._finish()
-
+                        self.finish_tap()
                 elif event.type == ecodes.EV_SYN and event.code == ecodes.SYN_REPORT:
-                    self._sample()
+                    if self.touching and self.current_x is not None and self.current_y is not None:
+                        self.samples.append((self.current_x, self.current_y))
         except OSError as exc:
-            if not self.stop_requested.is_set():
-                self.out_queue.put(("error", f"Čtení touchscreen selhalo: {exc}"))
+            if not self.stop_event.is_set():
+                self.events.put(("error", f"Cteni touch selhalo: {exc}"))
         finally:
             try:
                 if self.grabbed:
@@ -239,398 +203,268 @@ class RawTouchReader(threading.Thread):
                 pass
 
 
-def solve_3x3(matrix: list[list[float]], vector: list[float]) -> list[float]:
-    augmented = [row[:] + [value] for row, value in zip(matrix, vector)]
-    n = 3
-    for col in range(n):
-        pivot = max(range(col, n), key=lambda row: abs(augmented[row][col]))
-        if abs(augmented[pivot][col]) < 1e-12:
-            raise RuntimeError("Kalibrační body netvoří řešitelnou matici.")
-        augmented[col], augmented[pivot] = augmented[pivot], augmented[col]
-        divisor = augmented[col][col]
-        augmented[col] = [v / divisor for v in augmented[col]]
-        for row in range(n):
-            if row == col:
-                continue
-            factor = augmented[row][col]
-            augmented[row] = [
-                augmented[row][j] - factor * augmented[col][j]
-                for j in range(n + 1)
-            ]
-    return [augmented[i][n] for i in range(n)]
+def fit_line(values: list[float], targets: list[float]) -> tuple[float, float]:
+    mean_v = sum(values) / len(values)
+    mean_t = sum(targets) / len(targets)
+    variance = sum((v - mean_v) ** 2 for v in values)
+    if variance < 1e-9:
+        raise RuntimeError("Kalibracni body nemaji dostatecny rozsah.")
+    scale = sum((v - mean_v) * (t - mean_t) for v, t in zip(values, targets)) / variance
+    offset = mean_t - scale * mean_v
+    return scale, offset
 
 
-def least_squares_affine(
-    raw_points: list[tuple[float, float]],
-    target_points: list[tuple[float, float]],
-) -> list[float]:
-    design = [[x, y, 1.0] for x, y in raw_points]
-
-    ata = [[sum(row[i] * row[j] for row in design) for j in range(3)] for i in range(3)]
-    at_x = [sum(row[i] * target[0] for row, target in zip(design, target_points)) for i in range(3)]
-    at_y = [sum(row[i] * target[1] for row, target in zip(design, target_points)) for i in range(3)]
-
-    x_coeff = solve_3x3(ata, at_x)
-    y_coeff = solve_3x3(ata, at_y)
-    return x_coeff + y_coeff
+def compose(orientation: Orientation, sx: float, ox: float, sy: float, oy: float) -> tuple[float, ...]:
+    a, b, c, d, e, f = orientation.matrix
+    return (
+        sx * a,
+        sx * b,
+        sx * c + ox,
+        sy * d,
+        sy * e,
+        sy * f + oy,
+    )
 
 
-class CalibratorApp:
-    def __init__(self, root: tk.Tk, dev: InputDevice, x_axis: AxisInfo, y_axis: AxisInfo) -> None:
+class Calibrator:
+    def __init__(self, root: tk.Tk, dev: InputDevice, x_axis: AxisInfo,
+                 y_axis: AxisInfo, auto_close: float) -> None:
         self.root = root
         self.dev = dev
         self.x_axis = x_axis
         self.y_axis = y_axis
+        self.auto_close = max(0.5, auto_close)
         self.events: "queue.Queue[tuple[str, object]]" = queue.Queue()
         self.reader = RawTouchReader(dev, x_axis, y_axis, self.events)
-        self.width = root.winfo_screenwidth()
-        self.height = root.winfo_screenheight()
-        self.canvas = tk.Canvas(root, bg="#10151d", highlightthickness=0)
-        self.canvas.pack(fill="both", expand=True)
-
-        margin = max(55, round(min(self.width, self.height) * 0.08))
-        cx, cy = self.width // 2, self.height // 2
-        self.targets_px: list[tuple[int, int]] = [
-            (margin, margin),
-            (cx, margin),
-            (self.width - margin, margin),
-            (self.width - margin, cy),
-            (self.width - margin, self.height - margin),
-            (cx, self.height - margin),
-            (margin, self.height - margin),
-            (margin, cy),
-            (cx, cy),
-        ]
         self.raw_taps: list[Tap] = []
-        self.last_accept_time = 0.0
+        self.exit_code = 1
         self.finished = False
+        self.last_tap_time = 0.0
 
-        root.title("ObjednávkaNG – Kalibrace 3M touchscreen")
-        # labwc/Wayland: force a true borderless fullscreen surface, not only a window-manager hint.
-        root.attributes("-fullscreen", True)
-        root.overrideredirect(True)
-        root.geometry(f"{root.winfo_screenwidth()}x{root.winfo_screenheight()}+0+0")
-        root.attributes("-topmost", True)
+        setup_tk_fullscreen(root, title=WINDOW_TITLE, wm_class=WM_CLASS, cursor="none")
+        root.bind("<Map>", self._on_map, add="+")
+
+        self.canvas = tk.Canvas(root, bg="#10151d", highlightthickness=0, cursor="none")
+        self.canvas.pack(fill="both", expand=True)
+        root.update()
+        self.width = max(1, self.canvas.winfo_width())
+        self.height = max(1, self.canvas.winfo_height())
+
+        margin = max(35, round(min(self.width, self.height) * 0.045))
+        self.targets_px = [
+            (margin, margin),
+            (self.width - margin, margin),
+            (self.width - margin, self.height - margin),
+            (margin, self.height - margin),
+        ]
+
+        root.bind("<Escape>", lambda _e: self.abort())
         root.lift()
         root.focus_force()
-        root.configure(cursor="none")
-        root.bind("<Escape>", lambda _e: self.abort())
-        root.bind("<BackSpace>", lambda _e: self.undo())
-        root.bind("<Control-r>", lambda _e: self.restart())
-
-        self.draw_target()
+        self.draw()
         self.reader.start()
-        self.root.after(40, self.poll_events)
+        root.after(35, self.poll)
+        root.after(240000, lambda: self.error("Vyprsel cas kalibrace."))
 
-    def title_text(self, text: str, y: int, size: int = 18, fill: str = "#e8eef8") -> None:
-        self.canvas.create_text(
-            self.width // 2, y, text=text, fill=fill,
-            font=("Sans", size, "bold"), justify="center"
-        )
+    def _on_map(self, _event: tk.Event) -> None:
+        schedule_labwc_fullscreen(self.root, title=WINDOW_TITLE, wm_class=WM_CLASS)
 
-    def draw_target(self) -> None:
-        self.canvas.delete("all")
-        idx = len(self.raw_taps)
-        if idx >= len(self.targets_px):
-            return
-
-        x, y = self.targets_px[idx]
-        self.title_text("Kalibrace dotykové obrazovky 3M", 36, 22)
-        self.canvas.create_text(
-            self.width // 2, 72,
-            text=f"Dotkni se středu křížku a uvolni prst  •  Bod {idx + 1} / {len(self.targets_px)}",
-            fill="#bfcadb", font=("Sans", 14)
-        )
-        self.canvas.create_text(
-            self.width // 2, self.height - 35,
-            text="Esc = ukončit   |   Backspace = opakovat předchozí bod",
-            fill="#8a98aa", font=("Sans", 12)
-        )
-
-        radius = 28
-        self.canvas.create_oval(x - radius, y - radius, x + radius, y + radius, outline="#29d17d", width=3)
-        self.canvas.create_line(x - 42, y, x + 42, y, fill="#29d17d", width=2)
-        self.canvas.create_line(x, y - 42, x, y + 42, fill="#29d17d", width=2)
-        self.canvas.create_oval(x - 4, y - 4, x + 4, y + 4, fill="#f6f8fc", outline="")
-
-        for i, (px, py) in enumerate(self.targets_px[:idx]):
-            self.canvas.create_oval(px - 7, py - 7, px + 7, py + 7, fill="#6f7f95", outline="")
-
-    def normalize_tap(self, tap: Tap) -> tuple[float, float]:
+    def normalize(self, tap: Tap) -> tuple[float, float]:
         x = (tap.raw_x - self.x_axis.minimum) / (self.x_axis.maximum - self.x_axis.minimum)
         y = (tap.raw_y - self.y_axis.minimum) / (self.y_axis.maximum - self.y_axis.minimum)
         return x, y
 
-    def normalized_targets(self) -> list[tuple[float, float]]:
-        return [
-            (x / (self.width - 1), y / (self.height - 1))
-            for x, y in self.targets_px
-        ]
+    def target_norm(self) -> list[tuple[float, float]]:
+        return [(x / max(1, self.width - 1), y / max(1, self.height - 1)) for x, y in self.targets_px]
 
-    def accept_tap(self, tap: Tap) -> None:
+    def solve(self) -> tuple[Orientation, tuple[float, ...], float]:
+        raw = [self.normalize(t) for t in self.raw_taps]
+        targets = self.target_norm()
+        candidates: list[tuple[float, Orientation, tuple[float, ...]]] = []
+        for orientation in ORIENTATIONS:
+            uv = [orientation.transform(x, y) for x, y in raw]
+            try:
+                sx, ox = fit_line([p[0] for p in uv], [p[0] for p in targets])
+                sy, oy = fit_line([p[1] for p in uv], [p[1] for p in targets])
+            except RuntimeError:
+                continue
+            if not (0.35 <= sx <= 4.0 and 0.35 <= sy <= 4.0):
+                continue
+            matrix = compose(orientation, sx, ox, sy, oy)
+            errors = []
+            for (rx, ry), (tx, ty) in zip(raw, targets):
+                px = matrix[0] * rx + matrix[1] * ry + matrix[2]
+                py = matrix[3] * rx + matrix[4] * ry + matrix[5]
+                errors.append(math.hypot((px - tx) * self.width, (py - ty) * self.height))
+            rms = math.sqrt(sum(e * e for e in errors) / len(errors))
+            candidates.append((rms, orientation, matrix))
+        if not candidates:
+            raise RuntimeError("Nepodarilo se vypocitat kalibracni matici.")
+        candidates.sort(key=lambda item: item[0])
+        return candidates[0][1], candidates[0][2], candidates[0][0]
+
+    def draw(self) -> None:
+        self.canvas.delete("all")
+        idx = len(self.raw_taps)
+        self.canvas.create_text(self.width // 2, 42, text="KALIBRACE 3M DOTYKOVEHO PANELU",
+                                fill="#f2f6fb", font=("Sans", 23, "bold"))
+        self.canvas.create_text(self.width // 2, 80,
+                                text=f"Dotkni se stredu krize a uvolni prst  -  bod {idx + 1}/4",
+                                fill="#c4ceda", font=("Sans", 15))
+        self.canvas.create_text(self.width // 2, self.height - 28,
+                                text=f"Fullscreen {self.width} x {self.height} px",
+                                fill="#8795a8", font=("Sans", 12))
+        for i, (x, y) in enumerate(self.targets_px):
+            if i < idx:
+                self.canvas.create_oval(x - 10, y - 10, x + 10, y + 10, fill="#29d17d", outline="")
+            elif i == idx:
+                self.canvas.create_oval(x - 30, y - 30, x + 30, y + 30, outline="#ffd34e", width=4)
+                self.canvas.create_line(x - 45, y, x + 45, y, fill="#ffd34e", width=3)
+                self.canvas.create_line(x, y - 45, x, y + 45, fill="#ffd34e", width=3)
+                self.canvas.create_oval(x - 5, y - 5, x + 5, y + 5, fill="#ffffff", outline="")
+            else:
+                self.canvas.create_oval(x - 8, y - 8, x + 8, y + 8, outline="#637084", width=2)
+
+    def accept(self, tap: Tap) -> None:
         if self.finished:
             return
         now = time.monotonic()
-        if now - self.last_accept_time < 0.18:
+        if now - self.last_tap_time < 0.20:
             return
-        self.last_accept_time = now
+        self.last_tap_time = now
         self.raw_taps.append(tap)
-        if len(self.raw_taps) == len(self.targets_px):
+        if len(self.raw_taps) >= 4:
             self.finish()
         else:
-            self.draw_target()
-
-    def undo(self) -> None:
-        if self.finished:
-            return
-        if self.raw_taps:
-            self.raw_taps.pop()
-        self.draw_target()
-
-    def restart(self) -> None:
-        self.raw_taps = []
-        self.finished = False
-        self.draw_target()
-
-    def abort(self) -> None:
-        self.reader.stop()
-        self.root.destroy()
-
-    def show_error(self, message: str) -> None:
-        self.reader.stop()
-        self.canvas.delete("all")
-        self.title_text("Kalibraci nelze dokončit", self.height // 2 - 40, 23, "#ff7878")
-        self.canvas.create_text(
-            self.width // 2, self.height // 2 + 15, text=message,
-            fill="#e8eef8", font=("Sans", 14), width=self.width - 100, justify="center"
-        )
-        self.canvas.create_text(
-            self.width // 2, self.height // 2 + 75, text="Stiskni Esc pro ukončení.",
-            fill="#a4b0bf", font=("Sans", 13)
-        )
+            self.draw()
 
     def finish(self) -> None:
         self.finished = True
         self.reader.stop()
-        raw_norm = [self.normalize_tap(tap) for tap in self.raw_taps]
-        targets = self.normalized_targets()
         try:
-            matrix = least_squares_affine(raw_norm, targets)
-        except RuntimeError as exc:
-            self.show_error(str(exc))
+            orientation, matrix, rms = self.solve()
+            matrix_text = " ".join(fmt(v) for v in matrix)
+            self.save(orientation, matrix_text, rms)
+        except Exception as exc:  # noqa: BLE001
+            self.error(str(exc))
             return
-
-        predictions = [
-            (
-                matrix[0] * raw[0] + matrix[1] * raw[1] + matrix[2],
-                matrix[3] * raw[0] + matrix[4] * raw[1] + matrix[5],
-            )
-            for raw in raw_norm
-        ]
-        pixel_errors = [
-            math.hypot((pred[0] - target[0]) * (self.width - 1),
-                       (pred[1] - target[1]) * (self.height - 1))
-            for pred, target in zip(predictions, targets)
-        ]
-        rms = math.sqrt(sum(e * e for e in pixel_errors) / len(pixel_errors))
-        max_error = max(pixel_errors)
-        matrix_text = " ".join(fmt(v) for v in matrix)
-        vendor = f"{self.dev.info.vendor:04x}"
-        product = f"{self.dev.info.product:04x}"
-        device_name = self.dev.name
-
-        if "eGalaxTouch Virtual Device for Single" in device_name:
-            # EETI vytváří virtuální zařízení hlášené jako pointer; USB ATTRS zde nemusí existovat.
-            match = 'ATTRS{name}=="eGalaxTouch Virtual Device for Single*", '
-        elif vendor == "0596" and product == "0001":
-            match = 'ATTRS{idVendor}=="0596", ATTRS{idProduct}=="0001", '
-        else:
-            # Pro neznámý panel je bezpečnější pravidlo před aplikací ručně zkontrolovat.
-            safe_name = device_name.replace('\\', '\\\\').replace('"', '\\\"')
-            match = f'ATTRS{{name}}=="{safe_name}", '
-
-        rule_text = (
-            'ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", '
-            + match
-            + f'ENV{{LIBINPUT_CALIBRATION_MATRIX}}="{matrix_text}"\n'
-        )
-        apply_script = self.save_results(matrix_text, rule_text, rms, max_error)
-        apply_ok, apply_message = self.apply_results(apply_script)
-
+        self.exit_code = 0
         self.canvas.delete("all")
         self.root.configure(cursor="")
-        color = "#29d17d" if apply_ok and rms <= 18 else "#ffb84c"
-        self.title_text("Kalibrace dokončena", 76, 28, color)
-        self.canvas.create_text(
-            self.width // 2, 140,
-            text=f"Průměrná chyba: {rms:.1f} px   •   Největší chyba: {max_error:.1f} px",
-            fill="#e8eef8", font=("Sans", 16)
-        )
-        self.canvas.create_text(
-            self.width // 2, 212, text="Výsledná LIBINPUT_CALIBRATION_MATRIX:",
-            fill="#a4b0bf", font=("Sans", 14)
-        )
-        self.canvas.create_text(
-            self.width // 2, 255, text=matrix_text,
-            fill="#f6f8fc", font=("Monospace", 17, "bold")
-        )
-        self.canvas.create_text(
-            self.width // 2, 342,
-            text="Výsledek je uložený a kalibrátor se automaticky zavře.",
-            fill="#a4b0bf", font=("Sans", 14)
-        )
-        self.canvas.create_text(
-            self.width // 2, 385, text=apply_message,
-            fill="#29d17d" if apply_ok else "#ffb84c", font=("Sans", 15, "bold"),
-            width=self.width - 120, justify="center"
-        )
-        self.canvas.create_text(
-            self.width // 2, 460,
-            text="Pro spolehlivé načtení ve Wayland relaci je nyní nutný restart zařízení.",
-            fill="#d5deeb", font=("Sans", 14), justify="center"
-        )
-        self.canvas.create_text(
-            self.width // 2, self.height - 45,
-            text="Zavírám za 5 sekund...",
-            fill="#8a98aa", font=("Sans", 12)
-        )
-        self.root.after(5000, self.root.destroy)
+        self.canvas.create_text(self.width // 2, self.height // 2 - 45,
+                                text="KALIBRACE ULOZENA", fill="#29d17d",
+                                font=("Sans", 30, "bold"))
+        self.canvas.create_text(self.width // 2, self.height // 2 + 15,
+                                text=f"Profil: {orientation.name}\nMatice: {matrix_text}\nRMS: {rms:.1f} px",
+                                fill="#dfe7f1", font=("Sans", 15), justify="center")
+        self.root.after(int(self.auto_close * 1000), self.close_success)
 
-    def apply_results(self, apply_script: Path) -> tuple[bool, str]:
-        try:
-            completed = subprocess.run(
-                ["sudo", "-n", str(apply_script)],
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                check=False,
-            )
-        except OSError as exc:
-            return False, f"Automaticka aplikace selhala: {exc}"
-
-        if completed.returncode == 0:
-            return True, "Kalibracni pravidlo bylo automaticky zapsano."
-        output = (completed.stdout or "").strip().splitlines()
-        tail = output[-1] if output else f"exit {completed.returncode}"
-        return False, f"Automaticky zapis selhal ({tail}). Spust rucne: sudo {apply_script}"
-
-    def save_results(self, matrix_text: str, rule_text: str, rms: float, max_error: float) -> Path:
+    def save(self, orientation: Orientation, matrix_text: str, rms: float) -> None:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         rule_file = STATE_DIR / RULE_FILENAME
         result_file = STATE_DIR / "last-result.txt"
         apply_file = STATE_DIR / "apply-calibration.sh"
+        success_file = STATE_DIR / "calibration.success"
+        success_file.unlink(missing_ok=True)
 
+        rule_text = (
+            '# ObjednavkaNG 3M full-range calibration.\n'
+            'ACTION=="add|change", SUBSYSTEM=="input", KERNEL=="event*", '
+            'ENV{ID_INPUT_TOUCHSCREEN}=="1", '
+            'ATTRS{idVendor}=="0596", ATTRS{idProduct}=="0001", '
+            f'ENV{{LIBINPUT_CALIBRATION_MATRIX}}="{matrix_text}"\n'
+        )
         rule_file.write_text(rule_text, encoding="utf-8")
         result_file.write_text(
-            f"Device: {self.dev.name}\n"
-            f"Kernel: {self.dev.path}\n"
+            f"Device: {self.dev.name}\nKernel: {self.dev.path}\n"
             f"Screen: {self.width}x{self.height}\n"
-            f"Raw X: {self.x_axis.minimum}..{self.x_axis.maximum}\n"
-            f"Raw Y: {self.y_axis.minimum}..{self.y_axis.maximum}\n"
-            f"RMS error px: {rms:.2f}\n"
-            f"Max error px: {max_error:.2f}\n"
-            f"LIBINPUT_CALIBRATION_MATRIX: {matrix_text}\n\n"
-            f"{rule_text}",
+            f"Raw X declared: {self.x_axis.minimum}..{self.x_axis.maximum}\n"
+            f"Raw Y declared: {self.y_axis.minimum}..{self.y_axis.maximum}\n"
+            f"Profile: {orientation.name}\nRMS px: {rms:.2f}\n"
+            f"LIBINPUT_CALIBRATION_MATRIX: {matrix_text}\n\n{rule_text}",
             encoding="utf-8",
         )
-
-        rule_src = shlex.quote(str(rule_file))
-        system_rule = f"/etc/udev/rules.d/{RULE_FILENAME}"
+        target = f"/etc/udev/rules.d/{RULE_FILENAME}"
         apply_file.write_text(
-            "#!/usr/bin/env bash\n"
-            "set -Eeuo pipefail\n"
-            "[[ $EUID -eq 0 ]] || { echo 'Spusť přes sudo.' >&2; exit 1; }\n"
-            f"RULE={shlex.quote(system_rule)}\n"
-            'if [[ -f "$RULE" ]]; then\n'
-            '  cp -a "$RULE" "${RULE}.backup.$(date +%Y%m%d_%H%M%S)"\n'
-            "fi\n"
-            f"install -m 0644 {rule_src} \"$RULE\"\n"
+            "#!/usr/bin/env bash\nset -Eeuo pipefail\n"
+            "[[ $EUID -eq 0 ]] || { echo 'Spust pres sudo.' >&2; exit 1; }\n"
+            f"TARGET={shlex.quote(target)}\n"
+            '[[ -f "$TARGET" ]] && cp -a "$TARGET" "${TARGET}.backup.$(date +%Y%m%d_%H%M%S)" || true\n'
+            "rm -f /etc/udev/rules.d/99-objng-3m-calibration.rules\n"
+            "rm -f /etc/udev/rules.d/99-3m-touch-calibration.rules\n"
+            f"install -m 0644 {shlex.quote(str(rule_file))} \"$TARGET\"\n"
             "udevadm control --reload-rules\n"
             "udevadm trigger --subsystem-match=input --action=change || true\n"
-            "echo 'Nastavená matice:'\n"
-            f"echo '  {matrix_text}'\n"
-            "echo 'Pro spolehlivé načtení ve Wayland relaci spusť: sudo reboot'\n",
+            f"echo 'Nastavena matice: {matrix_text}'\n",
             encoding="utf-8",
         )
         apply_file.chmod(0o755)
-        return apply_file
+        success_file.write_text("ok\n", encoding="utf-8")
 
-    def poll_events(self) -> None:
+    def close_success(self) -> None:
+        self.reader.stop()
+        try:
+            self.root.quit()
+        finally:
+            self.root.destroy()
+
+    def abort(self) -> None:
+        self.reader.stop()
+        self.exit_code = 1
+        self.root.quit()
+        self.root.destroy()
+
+    def error(self, message: str) -> None:
+        if self.finished and self.exit_code == 0:
+            return
+        self.finished = True
+        self.reader.stop()
+        self.exit_code = 1
+        self.canvas.delete("all")
+        self.canvas.create_text(self.width // 2, self.height // 2,
+                                text="KALIBRACE SELHALA\n" + message,
+                                fill="#ff6b75", font=("Sans", 20, "bold"), justify="center")
+        self.root.after(3000, self.abort)
+
+    def poll(self) -> None:
         try:
             while True:
                 kind, payload = self.events.get_nowait()
                 if kind == "tap":
-                    self.accept_tap(payload)  # type: ignore[arg-type]
+                    self.accept(payload)  # type: ignore[arg-type]
                 elif kind == "warning":
-                    print(f"VAROVÁNÍ: {payload}", file=sys.stderr)
+                    print(f"VAROVANI: {payload}", file=sys.stderr)
                 elif kind == "error":
-                    self.show_error(str(payload))
+                    self.error(str(payload))
         except queue.Empty:
             pass
-        if self.root.winfo_exists():
-            self.root.after(40, self.poll_events)
-
-
-def print_devices() -> None:
-    for path in list_devices():
         try:
-            dev = InputDevice(path)
-        except OSError:
-            continue
-        print(f"{path:20} {dev.info.vendor:04x}:{dev.info.product:04x}  {dev.name}")
-
-
-def check_device(explicit_path: Optional[str] = None) -> int:
-    try:
-        dev = find_touch_device(explicit_path)
-        x_axis, y_axis = choose_axes(dev)
-        keys = touch_keys(dev)
-        key_names = [ecodes.KEY.get(code, str(code)) for code in sorted(keys)]
-        print("KONTROLA TOUCHSCREEN: OK")
-        print(f"Zařízení: {dev.name}")
-        print(f"Kernel:   {dev.path}")
-        print(f"USB ID:   {dev.info.vendor:04x}:{dev.info.product:04x}")
-        print(f"RAW X:    code={x_axis.code} rozsah={x_axis.minimum}..{x_axis.maximum}")
-        print(f"RAW Y:    code={y_axis.code} rozsah={y_axis.minimum}..{y_axis.maximum}")
-        print(f"Touch:    {', '.join(map(str, key_names)) if key_names else 'NENALEZEN BTN_TOUCH/BTN_LEFT'}")
-        if not keys:
-            print("\nVAROVÁNÍ: zařízení nemá rozpoznaný touch-button event; GUI zatím nebude umět potvrdit klepnutí.")
-            return 2
-        print("\nZařízení je vhodné pro spuštění grafického kalibrátoru.")
-        return 0
-    except (RuntimeError, PermissionError, OSError) as exc:
-        print(f"KONTROLA TOUCHSCREEN: CHYBA: {exc}", file=sys.stderr)
-        return 1
+            if self.root.winfo_exists():
+                self.root.after(35, self.poll)
+        except tk.TclError:
+            pass
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Kalibrátor touchscreen pro Wayland/libinput.")
-    parser.add_argument("--device", help="Volitelně explicitní cesta, např. /dev/input/event4")
-    parser.add_argument("--list", action="store_true", help="Vypíše vstupní zařízení a skončí")
-    parser.add_argument("--check", action="store_true", help="Ověří touchscreen a osy bez otevření grafického okna")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--device")
+    parser.add_argument("--auto-close-seconds", type=float, default=1.2)
+    parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-
-    if args.list:
-        print_devices()
-        return 0
-    if args.check:
-        return check_device(args.device)
-
     try:
         dev = find_touch_device(args.device)
         x_axis, y_axis = choose_axes(dev)
-    except (RuntimeError, PermissionError, OSError) as exc:
+    except (RuntimeError, OSError, PermissionError) as exc:
         print(f"CHYBA: {exc}", file=sys.stderr)
-        print("Zkontroluj přístupová práva a instalaci přes instalační skript.", file=sys.stderr)
         return 1
-
-    print(f"Zařízení: {dev.name} ({dev.path})")
-    print(f"USB ID:   {dev.info.vendor:04x}:{dev.info.product:04x}")
-    print(f"RAW X:    {x_axis.minimum} .. {x_axis.maximum}")
-    print(f"RAW Y:    {y_axis.minimum} .. {y_axis.maximum}")
-
+    if args.check:
+        print(f"OK: {dev.path} {dev.name}")
+        print(f"RAW X: {x_axis.minimum}..{x_axis.maximum}")
+        print(f"RAW Y: {y_axis.minimum}..{y_axis.maximum}")
+        return 0
+    print(f"3M touch: {dev.path} {dev.name}")
     root = tk.Tk()
-    CalibratorApp(root, dev, x_axis, y_axis)
+    app = Calibrator(root, dev, x_axis, y_axis, args.auto_close_seconds)
     try:
         root.mainloop()
     finally:
@@ -638,7 +472,7 @@ def main() -> int:
             dev.close()
         except OSError:
             pass
-    return 0
+    return app.exit_code
 
 
 if __name__ == "__main__":

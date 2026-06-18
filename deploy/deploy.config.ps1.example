@@ -1,0 +1,18 @@
+# Kopie jako deploy.config.ps1 a uprav. deploy.config.ps1 je v .gitignore (obsahuje heslo).
+@{
+    RemoteHost = '192.168.1.2'
+    User       = 'objng'
+    RemoteDir  = '/home/objng'
+    PackageDir = ''
+    # Volitelne – bez hesla se pouzije interaktivni ssh/scp nebo SSH klic.
+    Password     = ''
+    # Volitelne; kdyz prazdne, pouzije se Password (sudo na cistem RPi).
+    SudoPassword = ''
+}
+
+# Jednoraze pro heslo v configu:
+#   Install-Module -Name Posh-SSH -Scope CurrentUser -Force
+#
+# Doporuceno misto hesla: SSH klic (bez Posh-SSH)
+#   ssh-keygen -t ed25519 -N '""' -f $env:USERPROFILE\.ssh\id_objng
+#   type $env:USERPROFILE\.ssh\id_objng.pub | ssh objng@192.168.1.2 "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"

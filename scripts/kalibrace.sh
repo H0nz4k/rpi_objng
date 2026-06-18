@@ -31,7 +31,7 @@ if [[ "$HAS_EGALAX" -eq 1 ]]; then
   echo "Detekován eGalax USB touchscreen 0eef:0001."
   command -v eCalib >/dev/null 2>&1 || {
     echo "Oficiální EETI eCalib není nainstalovaný." >&2
-    echo "Spusť: sudo install-egalax-eeti && sudo reboot" >&2
+    echo "Spusť: sudo install-egalax-eeti --accept-license && sudo reboot" >&2
     exit 1
   }
   echo "Spouštím oficiální EETI kalibrátor. V nabídce zvol 1 = 4 points calibration."

@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # ObjednávkaNG – trvalé zvětšení zobrazení na Wayland/labwc přes kanshi
-# Ovládá scale monitoru HDMI-A-1 (NEC E171M).
+# Ovlada scale automaticky detekovaneho aktivniho vystupu.
 set -Eeuo pipefail
 
-OUTPUT="HDMI-A-1"
+detect_output() {
+    if command -v wlr-randr >/dev/null 2>&1; then
+        wlr-randr 2>/dev/null | awk '/^[^[:space:]]/{out=$1} /Enabled:[[:space:]]+yes/{print out; exit}'
+    fi
+}
+OUTPUT="${OBJNG_OUTPUT:-$(detect_output)}"
+OUTPUT="${OUTPUT:-HDMI-A-1}"
 SCALE_BIG="1.25"
 SCALE_NORMAL="1.0"
 CONFIG_DIR="${HOME}/.config/kanshi"
@@ -53,7 +59,7 @@ write_managed_config() {
 
     cat > "$CONFIG" <<EOF
 ${MANAGED_HEADER}
-# Displej: NEC Corporation E171M, výstup HDMI-A-1
+# Aktivni vystup je detekovan pri spusteni prikazu
 # Nativní rozlišení ponecháváme automaticky dle preferovaného režimu monitoru.
 profile objednavka-ng-scale {
     output ${OUTPUT} enable scale ${scale} position 0,0 transform normal
@@ -99,7 +105,7 @@ show_status() {
     else
         echo
         echo "Aktuální hodnotu v běžící relaci zobrazíš z terminálu na obrazovce/TeamVieweru:"
-        echo "  wlr-randr | grep -A40 '^HDMI-A-1' | grep Scale"
+        echo "  wlr-randr | grep -A40 "^$OUTPUT" | grep Scale"
     fi
 }
 

@@ -1,12 +1,34 @@
 # Changelog
 
+## v2.1.6 – desktop ikony, TV EULA, opravy faze 4
+
+- Plocha: Config/Prikazy/Info OBJNG oteviraji soubory primo v editoru (mousepad → gedit → nano).
+- Plocha: nove ikony Kalibrace touch a Test touch.
+- TeamViewer: automaticke prijeti EULA (`teamviewer license accept` + `LicenseAgreementStatus=1`).
+- Firstboot faze 4: [X] preskoci apt nebo public update a pokracuje do faze 5.
+
+## v2.1.5 – labwc fullscreen, deploy.ps1
+
+- Fullscreen touch (kalibrace + test) na labwc pres `wlrctl` a `WM_CLASS`.
+- `labwc_tk_helper.py` + `labwc-fullscreen.sh` – reseni Tkinter/XWayland na Waylandu.
+- Poradi fazi: touch (1-2) → instalace (3) → expand+apt (4) → kiosk (5).
+- Apt skip po 30 s s odpoctem.
+- `deploy.ps1` – Windows PowerShell deploy s Posh-SSH, `-Reset`, `-Install`, `-TestCycle`.
+- `reset-objng-firstboot.sh --factory` – hluboky reset.
+
+## v2.1.4 – TeamViewer secrets, dokumentace
+
+- Secret soubory pro TeamViewer heslo, alias, assignment ID.
+- Druha ikona `Prikazy OBJNG.desktop` s dokumentaci v `/opt/objednavka-ng/docs/`.
+- TeamViewer postinstall vzdy bezi (jazyk, LAN, apt hold).
+
+## v2.1.3 – 3M kalibrace v4.1, eGalax
+
+- 3M kalibrator v4.1, automaticky reboot, 180 s watchdog touch testu.
+- eGalax EETI driver a eCalib.
+
 ## 0.7.0 – Git-ready konsolidace
 
-- Připraven čistý projekt pro první push na Git.
-- Velké binární soubory a lokální `config.json` jsou chráněny přes `.gitignore`.
-- Přidán `config.example.json` pro repozitář.
-- Zachována offline instalace aplikace a TeamViewer Full z `files/`.
-- Přidán bezpečný TeamViewer dokončovací wizard (`setup`, `passwd`, služby, APT hold).
-- Volitelné lokální TeamViewer preference jsou označené jako experimentální a vždy zálohované.
-- Automatická libinput matice je pouze pro ověřený 3M panel; eGalax je směrován na oficiální EETI kalibraci.
-- Přidána Git dokumentace pro Windows / Git Bash.
+- Prvni push na Git.
+- Velke binarky a `config.json` chraneny pres `.gitignore`.
+- `config.example.json`, bezpecny TeamViewer wizard, libinput matice pro 3M.

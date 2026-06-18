@@ -1,10 +1,10 @@
-# Lokální nebo citlivé instalační vstupy
+# Binarky a lokalni vstupy
 files/objednavka-ng.AppImage
 files/teamviewer.deb
 files/config.json
 files/SHA256SUMS
 
-# Release artefakty a logy
+# Release artefakty
 *.zip
 *.7z
 *.tar.gz
@@ -17,6 +17,14 @@ v3/boot/firstboot.conf
 v3/rpibox_install.7z
 v3/install/files/config.json
 v3/install/files/SHA256SUMS
+
+# TeamViewer secrets (nikdy do Gitu)
+**/secrets/teamviewer-password
+**/secrets/teamviewer-alias
+**/secrets/teamviewer-assignment-id
+
+# Deploy konfigurace (muze obsahovat hesla)
+deploy/deploy.config.ps1
 
 # Python / OS / editory
 __pycache__/

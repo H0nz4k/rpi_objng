@@ -1,20 +1,32 @@
 #!/usr/bin/env bash
-# Rozpoznání známé dotykové vrstvy a doporučení správné kalibrační cesty.
+# Rozpoznání typu dotyku a příprava správné kalibrační cesty.
 set -Eeuo pipefail
-OUT="$(libinput list-devices 2>/dev/null || true)"
-if grep -q '3M 3M USB Touchscreen - EX II' <<<"$OUT"; then
+has_usb() { lsusb 2>/dev/null | grep -qi "$1"; }
+
+if has_usb '0eef:0001'; then
+  echo "Nalezen eGalax USB touchscreen (0eef:0001)."
+  if ! command -v eCalib >/dev/null 2>&1; then
+    read -r -p "Nainstalovat ověřený oficiální EETI eGTouch driver nyní? [A/n] " ans
+    if [[ "${ans:-A}" =~ ^[AaYy]$ ]]; then
+      sudo install-egalax-eeti
+      echo "Driver je instalovaný. Nyní proveď reboot a potom spusť: kalibrace"
+    fi
+    exit 0
+  fi
+  echo "EETI eCalib je instalovaný."
+  read -r -p "Spustit oficiální kalibraci eGalax nyní? [A/n] " ans
+  [[ "${ans:-A}" =~ ^[AaYy]$ ]] && exec kalibrace || true
+  exit 0
+fi
+
+if has_usb '0596:0001'; then
   echo "Nalezen 3M USB touchscreen (0596:0001)."
-  echo "Pro tento typ máme ověřenou směrovou matici 0 -1 1 -1 0 1."
-  read -r -p "Použít výchozí 3M orientaci nyní? [A/n] " ans
-  if [[ "${ans:-A}" =~ ^[AaYy]$ ]]; then sudo touch-preset apply; echo "Po rebootu lze provést jemné doladění příkazem: kalibrace"; fi
+  read -r -p "Použít ověřenou výchozí orientaci 3M před kalibrací? [A/n] " ans
+  if [[ "${ans:-A}" =~ ^[AaYy]$ ]]; then sudo touch-preset apply; fi
+  read -r -p "Spustit fullscreen kalibrátor 3M nyní? [A/n] " ans
+  [[ "${ans:-A}" =~ ^[AaYy]$ ]] && exec kalibrace || true
   exit 0
 fi
-if grep -q 'eGalaxTouch Virtual Device for Single' <<<"$OUT"; then
-  echo "Nalezen eGalaxTouch Virtual Device for Single."
-  echo "V naměřeném výpisu se tento EETI virtuální vstup hlásí jako pointer s 'Calibration: n/a'."
-  echo "Proto na něj automaticky NEAPLIKUJI libinput matici určenou pro 3M panel."
-  echo "Použij kalibrační nástroj oficiálního EETI/eGalax driveru."
-  exit 0
-fi
-echo "Nebyl nalezen známý dotykový panel 3M ani eGalaxTouch."
-echo "Diagnostika: sudo libinput list-devices"
+
+echo "Nebyl nalezen známý dotykový panel eGalax 0eef:0001 ani 3M 0596:0001."
+echo "Diagnostika: lsusb"
