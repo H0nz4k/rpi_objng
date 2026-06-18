@@ -109,6 +109,8 @@ run_3m_calibration() {
   local rc=$?
   set -e
 
+  "$USER_HOME/bin/restore-boot-terminal.sh" 2>/dev/null || true
+
   # O dalsim kroku rozhoduje atomicky success marker, ne pouze GUI exit code.
   if [[ ! -s "$SUCCESS_3M" ]]; then
     echo "CHYBA: 3M kalibrator nedokoncil ulozeni (kod procesu $rc)." >&2
@@ -161,6 +163,7 @@ run_egalax_calibration() {
     sleep 1
   done
   close_ecalib
+  "$USER_HOME/bin/restore-boot-terminal.sh" 2>/dev/null || true
   set +e
   wait "$pid" 2>/dev/null
   set -e

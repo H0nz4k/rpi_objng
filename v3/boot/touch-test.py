@@ -7,7 +7,7 @@ import sys
 import tkinter as tk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from labwc_tk_helper import schedule_labwc_fullscreen, setup_tk_fullscreen  # noqa: E402
+from labwc_tk_helper import restore_boot_terminal, schedule_labwc_fullscreen, setup_tk_fullscreen  # noqa: E402
 
 WM_CLASS = "ObjngTouchTest"
 WINDOW_TITLE = "ObjednavkaNG - test dotyku"
@@ -130,7 +130,11 @@ class TouchTest:
             fill="#dbe4ee",
             font=("Sans", 17),
         )
-        self.root.after(1400, self.root.destroy)
+        self.root.after(1400, self._finish_pass)
+
+    def _finish_pass(self) -> None:
+        restore_boot_terminal()
+        self.root.destroy()
 
     def fail(self, message: str) -> None:
         if self.finished:
@@ -153,7 +157,11 @@ class TouchTest:
             font=("Sans", 16),
             justify="center",
         )
-        self.root.after(2200, self.root.destroy)
+        self.root.after(2200, lambda: self._finish_fail())
+
+    def _finish_fail(self) -> None:
+        restore_boot_terminal()
+        self.root.destroy()
 
 
 root = tk.Tk()

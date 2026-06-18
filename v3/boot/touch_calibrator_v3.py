@@ -25,7 +25,7 @@ from evdev import InputDevice, ecodes, list_devices
 import tkinter as tk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from labwc_tk_helper import schedule_labwc_fullscreen, setup_tk_fullscreen  # noqa: E402
+from labwc_tk_helper import restore_boot_terminal, schedule_labwc_fullscreen, setup_tk_fullscreen  # noqa: E402
 
 WM_CLASS = "ObjngTouchCalibrator"
 WINDOW_TITLE = "ObjednavkaNG - kalibrace 3M touch"
@@ -403,6 +403,7 @@ class Calibrator:
 
     def close_success(self) -> None:
         self.reader.stop()
+        restore_boot_terminal()
         try:
             self.root.quit()
         finally:
@@ -410,6 +411,7 @@ class Calibrator:
 
     def abort(self) -> None:
         self.reader.stop()
+        restore_boot_terminal()
         self.exit_code = 1
         self.root.quit()
         self.root.destroy()

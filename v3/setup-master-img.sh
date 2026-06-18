@@ -60,7 +60,7 @@ install -d -m 0755 -o "$TARGET_USER" -g "$TARGET_GROUP" \
 
 for f in \
   firstboot-install.sh touch-bootstrap.sh touch-test.py touch_calibrator_v3.py \
-  labwc-fullscreen.sh labwc_tk_helper.py \
+  labwc-fullscreen.sh labwc_tk_helper.py restore-boot-terminal.sh \
   install-egalax-eeti-bootstrap.sh install-local-core.sh install-teamviewer.sh \
   teamviewer-postinstall.sh apply-public-update.sh finalize-system.sh system-update.sh \
   verify-final-state.sh reset-objng-firstboot.sh; do

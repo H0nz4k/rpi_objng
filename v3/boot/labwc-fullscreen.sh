@@ -23,6 +23,12 @@ minimize_boot_terminal() {
 }
 
 restore_boot_terminal() {
+  local helper
+  helper="$(dirname "$0")/restore-boot-terminal.sh"
+  if [[ -x "$helper" ]]; then
+    "$helper" 2>/dev/null || true
+    return 0
+  fi
   command -v wlrctl >/dev/null 2>&1 || return 0
   local spec
   for spec in \
@@ -31,7 +37,6 @@ restore_boot_terminal() {
     "title:ObjednavkaNG MASTER BOOT*"
   do
     if wlrctl toplevel find "$spec" >/dev/null 2>&1; then
-      # focus obnovi okno z taskbaru (labwc nema primo unminimize)
       wlrctl toplevel focus "$spec" state:minimized 2>/dev/null || \
         wlrctl toplevel focus "$spec" 2>/dev/null || true
       wlrctl toplevel focus "$spec" 2>/dev/null || true
@@ -74,5 +79,6 @@ if command -v wlrctl >/dev/null 2>&1; then
 fi
 
 wait "$pid"
+sleep 0.15
 restore_boot_terminal
 exit $?

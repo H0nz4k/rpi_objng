@@ -73,6 +73,8 @@ run_calibration_and_reboot() {
   local rc=0
   # touch-bootstrap vraci 10/20 jako uspech; set -e by to nesmi interpretovat jako chybu.
   "$TOUCH_TOOL" --calibrate || rc=$?
+  "$USER_HOME/bin/restore-boot-terminal.sh" 2>/dev/null || true
+  clear
   case "$rc" in
     10)
       touch "$CAL_PENDING"
@@ -116,14 +118,7 @@ touch_phase() {
     "$TOUCH_TEST" || test_rc=$?
 
   # labwc-fullscreen obnovi terminal; pro jistotu jeste jednou
-  if command -v wlrctl >/dev/null 2>&1; then
-    for spec in app_id:objng-master-boot identifier:objng-master-boot "title:ObjednavkaNG MASTER BOOT*"; do
-      if wlrctl toplevel find "$spec" >/dev/null 2>&1; then
-        wlrctl toplevel focus "$spec" state:minimized 2>/dev/null || wlrctl toplevel focus "$spec" 2>/dev/null || true
-        break
-      fi
-    done
-  fi
+  "$USER_HOME/bin/restore-boot-terminal.sh" 2>/dev/null || true
   clear
 
   if [[ "$test_rc" -eq 0 ]]; then
