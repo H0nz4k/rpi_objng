@@ -21,15 +21,30 @@ EXPAND_REQUESTED="$STATE/filesystem-expand.requested"
 EXPAND_DONE="$STATE/filesystem-expand.done"
 SYSTEM_UPDATE_DONE="$STATE/system-update.done"
 FINAL_DONE="$STATE/final.done"
+LOCK="$STATE/firstboot-install.lock"
 LOG="$USER_HOME/objng_firstboot_install.log"
 TOUCH_TOOL="$USER_HOME/bin/touch-bootstrap.sh"
 TOUCH_TEST="$USER_HOME/bin/touch-test.py"
 UPDATE_URL="${OBJNG_UPDATE_URL:-https://cdn.public.altisima.cz/objng_update.tar.gz}"
 UPDATE_DIR="$USER_HOME/update"
 
+# Firstboot musi bezet jako objng (ne sudo bash – jinak root lock soubor).
+if [[ "$(id -u)" -eq 0 ]]; then
+  if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
+    exec sudo -u "$SUDO_USER" -H bash "$0" "$@"
+  fi
+  echo "Spust bez sudo: bash $0" >&2
+  exit 1
+fi
+
 mkdir -p "$STATE"
+# Stary /tmp lock nebo root-owned lock po sudo spusteni.
+rm -f /tmp/objng-firstboot-install.lock 2>/dev/null || true
+if [[ -e "$LOCK" && ! -w "$LOCK" ]]; then
+  sudo -n rm -f "$LOCK" 2>/dev/null || rm -f "$LOCK" 2>/dev/null || true
+fi
 exec > >(tee -a "$LOG") 2>&1
-exec 9>/tmp/objng-firstboot-install.lock
+exec 9>"$LOCK"
 if ! flock -n 9; then
   echo "Firstboot uz bezi v jinem okne. Tato instance konci."
   exit 0
