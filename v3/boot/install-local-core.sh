@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Local/offline core install for ObjednavkaNG MASTER BOOT FINAL v2.1.7
+# Local/offline core install for ObjednavkaNG MASTER BOOT FINAL v2.1.8
 set -Eeuo pipefail
 
-VERSION="2.1.7"
+VERSION="2.1.9"
 TARGET_USER="${OBJNG_USER:-objng}"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 TARGET_GROUP="$(id -gn "$TARGET_USER")"
@@ -119,8 +119,14 @@ PY
 fi
 
 # Hostname + desktop autologin. Toto se nastavi uz v master IMG a znovu overi pri instalaci jadra.
-hostnamectl set-hostname "${OBJNG_HOSTNAME:-rpi-pcbox}"
-printf '%s\n' "${OBJNG_HOSTNAME:-rpi-pcbox}" > /etc/hostname
+HN="${OBJNG_HOSTNAME:-rpi-pcbox}"
+hostnamectl set-hostname "$HN"
+printf '%s\n' "$HN" > /etc/hostname
+if grep -qE '^127\.0\.1\.1[[:space:]]' /etc/hosts 2>/dev/null; then
+  sed -i "s/^127\.0\.1\.1[[:space:]].*/127.0.1.1\t${HN}/" /etc/hosts
+elif ! grep -qE "[[:space:]]${HN}([[:space:]]|$)" /etc/hosts 2>/dev/null; then
+  printf '127.0.1.1\t%s\n' "$HN" >> /etc/hosts
+fi
 if command -v raspi-config >/dev/null 2>&1; then
   env SUDO_USER="$TARGET_USER" raspi-config nonint do_boot_behaviour B4
 fi

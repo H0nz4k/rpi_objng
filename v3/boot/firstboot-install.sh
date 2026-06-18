@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ObjednavkaNG MASTER BOOT FINAL v2.1.8
+# ObjednavkaNG MASTER BOOT FINAL v2.1.9
 
 # Guard: CRLF fix + zajistit bash (ne sh/dash)
 if grep -qP '\r' "$0" 2>/dev/null; then sed -i 's/\r//' "$0"; exec bash "$0" "$@"; fi
@@ -7,7 +7,7 @@ if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 
 set -Eeuo pipefail
 
-VERSION="2.1.8"
+VERSION="2.1.9"
 USER_HOME="/home/objng"
 STATE="$USER_HOME/.local/state/objng-master-bootstrap"
 TOUCH_DONE="$STATE/touch.done"
@@ -163,6 +163,19 @@ internet_ok() {
   wget -qO /dev/null --timeout=8 --tries=1 https://www.raspberrypi.com/ 2>/dev/null
 }
 
+prompt_tty() {
+  [[ -r /dev/tty ]] && echo /dev/tty || echo ""
+}
+
+read_prompt_key() {
+  local key="" tty=""
+  tty="$(prompt_tty)"
+  [[ -n "$tty" ]] || return 1
+  IFS= read -r -s -n 1 -t 0.3 key < "$tty" 2>/dev/null || return 1
+  [[ -n "$key" ]] || return 1
+  printf '%s' "$key"
+}
+
 wait_for_internet_or_skip() {
   local skip_after="${1:-30}"
   local purpose="${2:-tento krok}"
@@ -184,13 +197,15 @@ wait_for_internet_or_skip() {
       return 0
     fi
     printf '\rCekam na internet... Automaticky preskoceno za %2d s. [X] preskocit: ' "$seconds"
-    if IFS= read -r -s -n 1 -t 1 key; then
+    key="$(read_prompt_key 2>/dev/null || true)"
+    if [[ -n "$key" ]]; then
       printf '\n'
       if [[ "${key^^}" == "X" ]]; then
         echo "Krok preskocen rucne. Pokracuji dalsi fazi."
         return 1
       fi
     fi
+    sleep 1
     seconds=$((seconds - 1))
   done
   printf '\nInternet neni dostupny. Preskakuji: %s\n' "$purpose"
@@ -326,17 +341,20 @@ install_teamviewer_phase() {
 }
 
 countdown_update_question() {
-  local seconds=20 key=""
+  local seconds="${OBJNG_UPDATE_PROMPT_SECONDS:-20}"
+  local key=""
   while (( seconds > 0 )); do
     printf '\rStahnout nejnovější update z public serveru? Automaticky NE za %2d s. [A] ano [N/X] ne/preskocit: ' "$seconds"
-    if IFS= read -r -s -n 1 -t 1 key; then
+    key="$(read_prompt_key 2>/dev/null || true)"
+    if [[ -n "$key" ]]; then
       printf '\n'
       case "${key^^}" in
         A|P) return 0 ;;
         N|X) return 1 ;;
       esac
     fi
-    seconds=$((seconds-1))
+    sleep 1
+    seconds=$((seconds - 1))
   done
   printf '\nCas vyprsel. Automaticky volim NE.\n'
   return 1
@@ -344,6 +362,11 @@ countdown_update_question() {
 
 apply_update_phase() {
   [[ -f "$UPDATE_DONE" ]] && return 0
+  if [[ "${OBJNG_SKIP_PUBLIC_UPDATE:-0}" == "1" ]]; then
+    echo "Public update preskocen (OBJNG_SKIP_PUBLIC_UPDATE=1)."
+    touch "$UPDATE_DONE"
+    return 0
+  fi
   banner "FAZE 3 - volitelna aktualizace z public serveru"
   echo "URL: $UPDATE_URL"
   echo "Aktualizace smi menit AppImage, pomocne skripty a splash. Config se neprepisuje."
@@ -459,7 +482,8 @@ wait_for_internet_or_skip_system_update() {
       return 0
     fi
     printf '\rCekam na internet... Automaticky preskoceno za %2d s. [X] preskocit: ' "$seconds"
-    if IFS= read -r -s -n 1 -t 1 key; then
+    key="$(read_prompt_key 2>/dev/null || true)"
+    if [[ -n "$key" ]]; then
       printf '\n'
       if [[ "${key^^}" == "X" ]]; then
         echo "Systemove aktualizace preskoceny rucne. Pokracuji do faze 5."
@@ -467,6 +491,7 @@ wait_for_internet_or_skip_system_update() {
         return 1
       fi
     fi
+    sleep 1
     seconds=$((seconds - 1))
   done
   printf '\n'
