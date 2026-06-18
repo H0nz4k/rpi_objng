@@ -143,7 +143,10 @@ internet_ok() {
 }
 
 wait_for_internet_or_skip() {
-  local skip_after="${1:-30}" purpose="${2:-tento krok}" seconds="$skip_after" key=""
+  local skip_after="${1:-30}"
+  local purpose="${2:-tento krok}"
+  local seconds="$skip_after"
+  local key=""
 
   if internet_ok; then
     return 0
@@ -349,7 +352,9 @@ expand_filesystem_phase() {
 }
 
 wait_for_internet_or_skip_system_update() {
-  local skip_after="${OBJNG_APT_WAIT_SECONDS:-30}" seconds="$skip_after" key=""
+  local skip_after="${OBJNG_APT_WAIT_SECONDS:-30}"
+  local seconds="$skip_after"
+  local key=""
 
   if internet_ok; then
     return 0
