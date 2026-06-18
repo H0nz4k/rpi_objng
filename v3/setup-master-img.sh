@@ -108,6 +108,12 @@ EOF2
 chmod 0440 /etc/sudoers.d/010-objng-firstboot-nopasswd
 visudo -cf /etc/sudoers.d/010-objng-firstboot-nopasswd
 
+# Oprava sudo varovani "unable to resolve host"
+HOSTNAME="$(hostname 2>/dev/null || true)"
+if [[ -n "$HOSTNAME" ]] && ! grep -qE "[[:space:]]$HOSTNAME([[:space:]]|$)" /etc/hosts 2>/dev/null; then
+  grep -q '127.0.1.1' /etc/hosts || echo "127.0.1.1 $HOSTNAME" >> /etc/hosts
+fi
+
 configure_touch_access() {
   getent group input >/dev/null 2>&1 || groupadd --system input
   usermod -aG input "$TARGET_USER"

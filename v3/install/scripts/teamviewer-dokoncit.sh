@@ -69,5 +69,11 @@ if [[ "$rc" -eq 0 || "$rc" -eq 49 ]]; then
   exit 0
 fi
 
+if [[ "$rc" -eq 43 ]]; then
+  echo "VAROVANI: TeamViewer assignment bez internetu (kod 43)."
+  echo "Lokalni nastaveni je hotove. Spustte pozdeji: teamviewer-dokoncit"
+  exit 0
+fi
+
 echo "TeamViewer assignment selhal, kod: $rc" >&2
 exit "$rc"

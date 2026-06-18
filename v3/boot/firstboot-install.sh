@@ -142,20 +142,35 @@ internet_ok() {
   wget -qO /dev/null --timeout=8 --tries=1 https://www.raspberrypi.com/ 2>/dev/null
 }
 
-wait_for_internet() {
-  while ! internet_ok; do
-    banner "FAZE 3 - cekam na internet"
-    echo "Touch test: OK"
-    echo "IP adresy:"
-    show_ip
-    echo
-    echo "Internet zatim neni dostupny. Kontrola znovu za 5 sekund."
-    echo "[X] zavrit - po dalsim bootu se pokracuje v teto fazi"
-    key=""
-    if IFS= read -r -s -n 1 -t 5 key; then
-      [[ "${key^^}" == "X" ]] && exit 0
+wait_for_internet_or_skip() {
+  local skip_after="${1:-30}" purpose="${2:-tento krok}" seconds="$skip_after" key=""
+
+  if internet_ok; then
+    return 0
+  fi
+
+  banner "FAZE 3 - cekam na internet ($purpose)"
+  echo "Bez internetu bude krok preskocen po ${skip_after} s."
+  show_ip
+  echo
+
+  while (( seconds > 0 )); do
+    if internet_ok; then
+      printf '\nInternet je dostupny.\n'
+      return 0
     fi
+    printf '\rCekam na internet... Automaticky preskoceno za %2d s. [X] preskocit: ' "$seconds"
+    if IFS= read -r -s -n 1 -t 1 key; then
+      printf '\n'
+      if [[ "${key^^}" == "X" ]]; then
+        echo "Krok preskocen rucne. Pokracuji dalsi fazi."
+        return 1
+      fi
+    fi
+    seconds=$((seconds - 1))
   done
+  printf '\nInternet neni dostupny. Preskakuji: %s\n' "$purpose"
+  return 1
 }
 
 install_local_core() {
@@ -199,7 +214,12 @@ install_teamviewer_phase() {
   [[ -f "$TEAMVIEWER_DONE" ]] && return 0
 
   if ! command -v teamviewer >/dev/null 2>&1 && ! teamviewer_deb_exists; then
-    wait_for_internet
+    wait_for_internet_or_skip 60 "stazeni TeamVieweru" || {
+      echo "VAROVANI: TeamViewer DEB neni v baliku a internet neni dostupny."
+      echo "TeamViewer se nainstaluje az pri pristim spusteni s internetem."
+      touch "$TEAMVIEWER_DONE"
+      return 0
+    }
   fi
 
   banner "FAZE 3 - instalace a nastaveni TeamVieweru"
@@ -227,13 +247,12 @@ install_teamviewer_phase() {
 countdown_update_question() {
   local seconds=20 key=""
   while (( seconds > 0 )); do
-    printf '\rStahnout nejnovější update z public serveru? Automaticky NE za %2d s. [A] ano [N] ne [X] zavrit: ' "$seconds"
+    printf '\rStahnout nejnovější update z public serveru? Automaticky NE za %2d s. [A] ano [N/X] ne/preskocit: ' "$seconds"
     if IFS= read -r -s -n 1 -t 1 key; then
       printf '\n'
       case "${key^^}" in
         A|P) return 0 ;;
-        N) return 1 ;;
-        X|N) return 1 ;;
+        N|X) return 1 ;;
       esac
     fi
     seconds=$((seconds-1))
@@ -261,7 +280,11 @@ apply_update_phase() {
       ;;
   esac
 
-  wait_for_internet
+  wait_for_internet_or_skip 30 "aktualizace z CDN" || {
+    echo "Aktualizace preskocena (bez internetu). Pokracuji dalsi fazi."
+    touch "$UPDATE_DONE"
+    return 0
+  }
   rm -rf "$UPDATE_DIR"
   mkdir -p "$UPDATE_DIR"
 
@@ -269,7 +292,7 @@ apply_update_phase() {
     echo "Update balik na serveru neexistuje nebo neni dostupny. Pokracuji bez aktualizace."
     rm -f "$UPDATE_DIR/objng_update.tar.gz.tmp"
     touch "$UPDATE_DONE"
-    sleep 3
+    sleep 2
     return 0
   fi
   mv "$UPDATE_DIR/objng_update.tar.gz.tmp" "$UPDATE_DIR/objng_update.tar.gz"
@@ -277,14 +300,28 @@ apply_update_phase() {
   if wget -q -O "$UPDATE_DIR/objng_update.tar.gz.sha256" "$UPDATE_URL.sha256"; then
     expected="$(awk '{print $1}' "$UPDATE_DIR/objng_update.tar.gz.sha256" | head -1)"
     actual="$(sha256sum "$UPDATE_DIR/objng_update.tar.gz" | awk '{print $1}')"
-    [[ -n "$expected" && "$expected" == "$actual" ]] || { echo "CHYBA: SHA256 update baliku nesedi." >&2; exit 1; }
+    if [[ -n "$expected" && "$expected" != "$actual" ]]; then
+      echo "VAROVANI: SHA256 update baliku nesedi. Pokracuji bez aktualizace."
+      rm -rf "$UPDATE_DIR"
+      touch "$UPDATE_DONE"
+      return 0
+    fi
   else
     echo "VAROVANI: SHA256 soubor neni dostupny."
   fi
 
   mkdir -p "$UPDATE_DIR/unpacked"
-  tar -xzf "$UPDATE_DIR/objng_update.tar.gz" -C "$UPDATE_DIR/unpacked" --strip-components=1
-  sudo -n "$USER_HOME/bin/apply-public-update.sh" "$UPDATE_DIR/unpacked"
+  if ! tar -xzf "$UPDATE_DIR/objng_update.tar.gz" -C "$UPDATE_DIR/unpacked" --strip-components=1; then
+    echo "VAROVANI: update balik nelze rozbalit. Pokracuji bez aktualizace."
+    rm -rf "$UPDATE_DIR"
+    touch "$UPDATE_DONE"
+    return 0
+  fi
+  if ! sudo -n "$USER_HOME/bin/apply-public-update.sh" "$UPDATE_DIR/unpacked"; then
+    echo "VAROVANI: aplikace update selhala. Pokracuji bez aktualizace."
+    touch "$UPDATE_DONE"
+    return 0
+  fi
   touch "$UPDATE_DONE"
 }
 
