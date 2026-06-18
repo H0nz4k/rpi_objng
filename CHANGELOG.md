@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.1.7 – fix kalibracni smycky + CRLF/deploy
+
+- odstranena smycka kalibrace (verify pres udev na labwc nefungovalo spolehlive)
+- faze 2: rovnou 4-bodovy touch test misto --verify
+- bash/CRLF guard ve vsech .sh skriptech
+- deploy.ps1: reset z nahraneeho baliku, setup pres bash + sed CR
+
 ## v2.1.6 – desktop ikony, TV EULA, opravy faze 4
 
 - Plocha: Config/Prikazy/Info OBJNG oteviraji soubory primo v editoru (mousepad → gedit → nano).

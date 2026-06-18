@@ -1,5 +1,5 @@
-﻿#!/usr/bin/env bash
-# ObjednavkaNG MASTER BOOT FINAL v2.1.6
+#!/usr/bin/env bash
+# ObjednavkaNG MASTER BOOT FINAL v2.1.7
 # Pripravi Raspberry Pi OS Desktop master kartu pro prvni automaticke spusteni.
 
 # Guard: pokud ma soubor Windows CRLF, opravime a znovu spustime pres bash.
@@ -15,7 +15,7 @@ fi
 
 set -Eeuo pipefail
 
-VERSION="2.1.6"
+VERSION="2.1.7"
 TARGET_USER="${OBJNG_USER:-objng}"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 TARGET_GROUP="$(id -gn "$TARGET_USER")"

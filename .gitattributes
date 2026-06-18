@@ -1,8 +1,19 @@
-* text=auto
-*.sh text eol=lf
-*.py text eol=lf
-*.md text eol=lf
-*.json text eol=lf
-*.conf text eol=lf
-*.tga binary
-*.png binary
+# Vsechny textove soubory ulozit v repozitari s LF
+* text=auto eol=lf
+
+# Shell skripty a Python – vzdy LF
+*.sh    text eol=lf
+*.py    text eol=lf
+*.conf  text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.example text eol=lf
+
+# Binarne soubory – zadna konverze
+*.deb     binary
+*.7z      binary
+*.tar.gz  binary
+*.AppImage binary
+*.png     binary
+*.tga     binary

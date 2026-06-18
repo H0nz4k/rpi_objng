@@ -1,5 +1,5 @@
-﻿#!/usr/bin/env python3
-"""Fullscreen 4-point touch verification for ObjednavkaNG boot v2.1.6."""
+#!/usr/bin/env python3
+"""Fullscreen 4-point touch verification for ObjednavkaNG boot v2.1.7."""
 from __future__ import annotations
 
 import os

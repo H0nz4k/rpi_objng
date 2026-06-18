@@ -116,6 +116,16 @@ function Build-PackageArchive {
     }
 
     Write-Host "Balim: $folderName -> $(Split-Path $ArchivePath -Leaf)" -ForegroundColor Cyan
+
+    # Normalizace koncu radku (LF) pred balenim – jinak Linux spousti skripty pres /bin/sh.
+    Get-ChildItem -Path $SourceDir -Recurse -Include '*.sh','*.py' -File | ForEach-Object {
+        $content = [IO.File]::ReadAllText($_.FullName)
+        $fixed = $content -replace "`r`n", "`n" -replace "`r", "`n"
+        if ($content -ne $fixed) {
+            [IO.File]::WriteAllText($_.FullName, $fixed, (New-Object System.Text.UTF8Encoding $false))
+        }
+    }
+
     & $tar -czf $ArchivePath -C $parent $folderName
     if ($LASTEXITCODE -ne 0) {
         throw "tar selhal, kod $LASTEXITCODE"
@@ -256,22 +266,55 @@ function Invoke-RemoteShell {
 }
 
 function Invoke-RemoteReset {
-    param([bool]$UseFactory, [bool]$Reboot)
+    param(
+        [bool]$UseFactory,
+        [bool]$Reboot,
+        [string]$PackageName = ''
+    )
 
     $factoryArg = if ($UseFactory) { ' --factory' } else { '' }
     $rebootCmd = if ($Reboot) { 'deploy_sudo reboot; sleep 3 || true' } else { 'echo "Reboot preskocen (-NoReboot)."' }
+    $remoteDir = $Defaults.RemoteDir
 
     Write-Host "Resetuji firstboot na ${RemoteTarget}..." -ForegroundColor Yellow
     $script = @"
-if command -v reset-objng-firstboot >/dev/null 2>&1; then
-  deploy_sudo reset-objng-firstboot$factoryArg
-elif [[ -x `$HOME/bin/reset-objng-firstboot.sh ]]; then
-  deploy_sudo `$HOME/bin/reset-objng-firstboot.sh$factoryArg
-else
-  echo "CHYBA: reset-objng-firstboot neni na zarizeni. Nejdriv spust -Install." >&2
-  exit 1
+PKG='$PackageName'
+REMOTE='$remoteDir'
+
+run_reset() {
+  local script="`$1"
+  shift
+  [[ -f "`$script" ]] || return 1
+  sed -i 's/\r//' "`$script" 2>/dev/null || true
+  deploy_sudo bash "`$script" "`$@"
+}
+
+# 1) Reset z prave nahraneeho baliku (216) – nejspolehlivejsi
+if [[ -n "`$PKG" && -f "`${REMOTE}/`${PKG}.tar.gz" ]]; then
+  RESET_PATH="`$(tar -tzf "`${REMOTE}/`${PKG}.tar.gz" 2>/dev/null | grep -m1 'files/bin/reset-objng-firstboot.sh$' || true)"
+  if [[ -n "`$RESET_PATH" ]]; then
+    TMP="/tmp/reset-objng-firstboot-`$PKG.sh"
+    tar -xzf "`${REMOTE}/`${PKG}.tar.gz" -O "`$RESET_PATH" > "`$TMP"
+    chmod +x "`$TMP"
+    if run_reset "`$TMP"$factoryArg; then
+      $rebootCmd
+      exit 0
+    fi
+  fi
 fi
-$rebootCmd
+
+# 2) Skript v /home/objng/bin
+if [[ -x `$HOME/bin/reset-objng-firstboot.sh ]]; then
+  run_reset "`$HOME/bin/reset-objng-firstboot.sh"$factoryArg && { $rebootCmd; exit 0; }
+fi
+
+# 3) Stary symlink v /usr/local/bin (casto rozbitý CRLF)
+if command -v reset-objng-firstboot >/dev/null 2>&1; then
+  run_reset "`$(command -v reset-objng-firstboot)"$factoryArg && { $rebootCmd; exit 0; }
+fi
+
+echo "CHYBA: reset-objng-firstboot neni dostupny. Nejdriv spust -Install nebo nahraj balik." >&2
+exit 1
 "@
     Invoke-RemoteShell -Script $script
 }
@@ -297,8 +340,9 @@ tar -xzf "`$ARCH"
 SETUP="`$(find "`$PKG" -type f -name setup-master-img.sh | head -1)"
 [[ -n "`$SETUP" ]] || { echo "CHYBA: setup-master-img.sh nenalezen v `$PKG" >&2; exit 1; }
 cd "`$(dirname "`$SETUP")"
+find . -name '*.sh' -exec sed -i 's/\r//' {} \; 2>/dev/null || true
 chmod +x ./setup-master-img.sh
-deploy_sudo ./setup-master-img.sh
+deploy_sudo bash ./setup-master-img.sh
 $rebootCmd
 "@
     Invoke-RemoteShell -Script $script
@@ -339,7 +383,7 @@ try {
     $archivePath = Join-Path $Root "$packageName.tar.gz"
 
     if ($doResetOnly) {
-        Invoke-RemoteReset -UseFactory $Factory.IsPresent -Reboot $doReboot
+        Invoke-RemoteReset -UseFactory $Factory.IsPresent -Reboot $doReboot -PackageName $packageName
         Write-Host ""
         Write-Host "Reset dokoncen. Po rebootu zacne firstboot od kalibrace." -ForegroundColor Green
         return
@@ -356,7 +400,7 @@ try {
     }
 
     if ($wantReset -and $wantInstall) {
-        Invoke-RemoteReset -UseFactory $Factory.IsPresent -Reboot $false
+        Invoke-RemoteReset -UseFactory $Factory.IsPresent -Reboot $false -PackageName $packageName
     }
 
     if ($wantInstall) {

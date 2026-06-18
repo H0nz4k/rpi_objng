@@ -1,5 +1,5 @@
-﻿#!/usr/bin/env bash
-# ObjednavkaNG MASTER BOOT FINAL v2.1.6
+#!/usr/bin/env bash
+# ObjednavkaNG MASTER BOOT FINAL v2.1.7
 
 # Guard: CRLF fix + zajistit bash (ne sh/dash)
 if grep -qP '\r' "$0" 2>/dev/null; then sed -i 's/\r//' "$0"; exec bash "$0" "$@"; fi
@@ -7,7 +7,7 @@ if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 
 set -Eeuo pipefail
 
-VERSION="2.1.6"
+VERSION="2.1.7"
 USER_HOME="/home/objng"
 STATE="$USER_HOME/.local/state/objng-master-bootstrap"
 TOUCH_DONE="$STATE/touch.done"

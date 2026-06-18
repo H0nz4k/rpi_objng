@@ -1,8 +1,13 @@
-﻿#!/usr/bin/env bash
-# Reset MASTER BOOT FINAL v2.1.6 zpet pred kalibraci.
+#!/usr/bin/env bash
+# Reset MASTER BOOT FINAL v2.1.7 zpet pred kalibraci.
 # Pouziti:
 #   sudo reset-objng-firstboot           # soft reset (firstboot od kalibrace)
 #   sudo reset-objng-firstboot --factory # + smaze /opt/objednavka-ng a ikony na ploche
+
+# Guard: CRLF fix + zajistit bash (ne sh/dash)
+if grep -qP '\r' "$0" 2>/dev/null; then sed -i 's/\r//' "$0"; exec bash "$0" "$@"; fi
+if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
+
 set -Eeuo pipefail
 
 TARGET_USER="${OBJNG_USER:-objng}"
@@ -108,7 +113,7 @@ runuser -u "$TARGET_USER" -- gsettings set org.gnome.desktop.a11y.applications s
 chown -R "$TARGET_USER:$TARGET_GROUP" "$TARGET_HOME/.local/state" "$TARGET_HOME/.config/labwc" 2>/dev/null || true
 sync
 
-echo "MASTER BOOT FINAL v2.1.6 byl resetovan pred kalibraci."
+echo "MASTER BOOT FINAL v2.1.7 byl resetovan pred kalibraci."
 if [[ "$FACTORY" -eq 1 ]]; then
   echo "Factory reset: /opt/objednavka-ng byl smazan, firstboot nainstaluje znovu z payloadu v IMG."
 fi
