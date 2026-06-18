@@ -136,9 +136,10 @@ cat > /etc/lightdm/lightdm.conf.d/90-objednavka-ng-autologin.conf <<EOF
 autologin-user=$TARGET_USER
 autologin-user-timeout=0
 EOF
-systemctl set-default graphical.target
-systemctl enable lightdm.service
-grep -q "^autologin-user=$TARGET_USER$" /etc/lightdm/lightdm.conf.d/90-objednavka-ng-autologin.conf
+systemctl set-default graphical.target || true
+systemctl enable lightdm.service 2>/dev/null || true
+grep -q "^autologin-user=$TARGET_USER$" /etc/lightdm/lightdm.conf.d/90-objednavka-ng-autologin.conf || \
+  echo "VAROVANI: autologin konfigurace nebyla overena v install-local-core." >&2
 
 cat > "$OPT_DOCS/SERVISNI_PRIKAZY.txt" <<'EOF'
 OBJEDNÁVKANG - SERVISNÍ PŘÍKAZY

@@ -176,6 +176,17 @@ read_prompt_key() {
   printf '%s' "$key"
 }
 
+read_prompt_line() {
+  local prompt="$1" var="$2" tty="" value=""
+  tty="$(prompt_tty)"
+  if [[ -n "$tty" ]]; then
+    IFS= read -r -p "$prompt" value < "$tty" || value=""
+  else
+    IFS= read -r -p "$prompt" value || value=""
+  fi
+  printf -v "$var" '%s' "$value"
+}
+
 wait_for_internet_or_skip() {
   local skip_after="${1:-30}"
   local purpose="${2:-tento krok}"
@@ -226,7 +237,14 @@ configure_connection() {
   banner "FAZE 3 - nastaveni databaze a PCBOX"
   enable_keyboard
   echo "Vypln connection. Enter pouzije nabidnutou vychozi hodnotu."
+  set +e
   nastavit-connection
+  local conn_rc=$?
+  set -e
+  if [[ "$conn_rc" -ne 0 ]]; then
+    echo "VAROVANI: nastavit-connection skoncil kodem $conn_rc. Pokracuji (config zustava)."
+    echo "Pozdeji spust: nastavit-connection"
+  fi
   touch "$CONNECTION_DONE"
 }
 
@@ -274,8 +292,7 @@ configure_teamviewer_alias() {
   echo "Priklad: Liberec -> Liberec, RPIbox"
   loc=""
   while [[ -z "$loc" ]]; do
-    printf "Lokalita: "
-    IFS= read -r loc || loc=""
+    read_prompt_line "Lokalita: " loc
     loc="${loc#"${loc%%[![:space:]]*}"}"
     loc="${loc%"${loc##*[![:space:]]}"}"
     if [[ -z "$loc" ]]; then
@@ -341,8 +358,9 @@ install_teamviewer_phase() {
 }
 
 countdown_update_question() {
-  local seconds="${OBJNG_UPDATE_PROMPT_SECONDS:-20}"
+  local seconds="${OBJNG_UPDATE_PROMPT_SECONDS:-5}"
   local key=""
+  # Vychozi: rychle preskocit (5 s). Pro 20 s: OBJNG_UPDATE_PROMPT_SECONDS=20
   while (( seconds > 0 )); do
     printf '\rStahnout nejnovější update z public serveru? Automaticky NE za %2d s. [A] ano [N/X] ne/preskocit: ' "$seconds"
     key="$(read_prompt_key 2>/dev/null || true)"
@@ -377,7 +395,8 @@ apply_update_phase() {
   choice=$?
   set -e
   case "$choice" in
-    1)
+    0) ;;
+    *)
       echo "Aktualizace byla preskocena. Pokracuji dalsi fazi."
       touch "$UPDATE_DONE"
       return 0
@@ -539,6 +558,8 @@ finalize_phase() {
   if [[ "$fin_rc" -ne 0 ]]; then
     echo "VAROVANI: finalize-system skoncil kodem $fin_rc."
     echo "Zkontroluj log a spust znovu: objng-dokoncit"
+    echo "final.done se nezapisuje – firstboot pri dalsim spusteni dokonci fazi 5."
+    return 0
   fi
   touch "$FINAL_DONE"
   echo

@@ -21,10 +21,15 @@ wait_for_apt_lock() {
   local i holder=""
   for i in $(seq 1 90); do
     stop_packagekit
-    if ! fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; then
+    if command -v fuser >/dev/null 2>&1; then
+      if ! fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; then
+        return 0
+      fi
+      holder="$(fuser /var/lib/apt/lists/lock 2>/dev/null | tr -s ' ' || true)"
+    else
+      sleep 2
       return 0
     fi
-    holder="$(fuser /var/lib/apt/lists/lock 2>/dev/null | tr -s ' ' || true)"
     printf '\r[UPDATE] Cekam na uvolneni apt zamku (%s/90)... holder: %s   ' "$i" "${holder:-packagekitd?}"
     sleep 2
   done
