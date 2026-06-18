@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Complete non-interactive Raspberry Pi OS update for MASTER BOOT FINAL v2.1.7.
+# Complete non-interactive Raspberry Pi OS update for MASTER BOOT FINAL v2.1.8.
 set -Eeuo pipefail
 
 [[ "$EUID" -eq 0 ]] || { echo "Spust pres sudo." >&2; exit 1; }

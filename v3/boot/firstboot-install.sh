@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ObjednavkaNG MASTER BOOT FINAL v2.1.7
+# ObjednavkaNG MASTER BOOT FINAL v2.1.8
 
 # Guard: CRLF fix + zajistit bash (ne sh/dash)
 if grep -qP '\r' "$0" 2>/dev/null; then sed -i 's/\r//' "$0"; exec bash "$0" "$@"; fi
@@ -7,7 +7,7 @@ if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 
 set -Eeuo pipefail
 
-VERSION="2.1.7"
+VERSION="2.1.8"
 USER_HOME="/home/objng"
 STATE="$USER_HOME/.local/state/objng-master-bootstrap"
 TOUCH_DONE="$STATE/touch.done"
@@ -303,7 +303,13 @@ install_teamviewer_phase() {
 
   configure_teamviewer_alias
 
+  set +e
   sudo -n env TEAMVIEWER_ALIAS="${TEAMVIEWER_ALIAS:-}" "$USER_HOME/bin/teamviewer-postinstall.sh"
+  local tv_post_rc=$?
+  set -e
+  if [[ "$tv_post_rc" -ne 0 ]]; then
+    echo "VAROVANI: teamviewer-postinstall skoncil kodem $tv_post_rc. Pokracuji."
+  fi
 
   if [[ -s "$USER_HOME/bootstrap/v2/secrets/teamviewer-assignment-id" ]]; then
     if env TEAMVIEWER_ALIAS="${TEAMVIEWER_ALIAS:-}" teamviewer-dokoncit; then
@@ -406,18 +412,28 @@ expand_filesystem_phase() {
   if [[ ! -f "$EXPAND_REQUESTED" ]]; then
     banner "FAZE 4 - rozsiruji filesystem na celou kartu"
     echo "Rozsireni bude dokonceno po automatickem rebootu."
+    set +e
     sudo -n raspi-config nonint do_expand_rootfs
+    local expand_rc=$?
+    set -e
+    if [[ "$expand_rc" -ne 0 ]]; then
+      echo "VAROVANI: raspi-config expand selhal (kod $expand_rc). Preskakuji rozsireni."
+      touch "$EXPAND_DONE"
+      return 0
+    fi
     touch "$EXPAND_REQUESTED"
     sleep 2
     reboot_now
   fi
 
   banner "FAZE 4 - dokonceni rozsireni filesystemu"
+  set +e
   root_fs="$(findmnt -n -o FSTYPE /)"
   root_dev="$(findmnt -n -o SOURCE /)"
   if [[ "$root_fs" == "ext4" && -b "$root_dev" ]]; then
     sudo -n resize2fs "$root_dev"
   fi
+  set -e
   rm -f "$EXPAND_REQUESTED"
   touch "$EXPAND_DONE"
   df -h /
@@ -491,7 +507,14 @@ finalize_phase() {
 
   output="$(detect_output)"
   output="${output:-HDMI-A-1}"
+  set +e
   sudo -n env OBJNG_OUTPUT="$output" "$USER_HOME/bin/finalize-system.sh"
+  local fin_rc=$?
+  set -e
+  if [[ "$fin_rc" -ne 0 ]]; then
+    echo "VAROVANI: finalize-system skoncil kodem $fin_rc."
+    echo "Zkontroluj log a spust znovu: objng-dokoncit"
+  fi
   touch "$FINAL_DONE"
   echo
   echo "Instalace MASTER BOOT v$VERSION je dokoncena. Restartuji za 5 sekund."

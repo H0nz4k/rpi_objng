@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reliable TeamViewer Host install for ObjednavkaNG MASTER BOOT FINAL v2.1.7.
+# Reliable TeamViewer Host install for ObjednavkaNG MASTER BOOT FINAL v2.1.8.
 set -Eeuo pipefail
 
 TARGET_USER="${OBJNG_USER:-objng}"
@@ -20,6 +20,12 @@ fix_hosts_for_sudo() {
   elif ! grep -qE "[[:space:]]${hn}([[:space:]]|$)" /etc/hosts 2>/dev/null; then
     printf '127.0.1.1\t%s\n' "$hn" >> /etc/hosts
   fi
+}
+
+stop_packagekit() {
+  systemctl stop packagekit.service 2>/dev/null || true
+  pkill -x packagekitd 2>/dev/null || true
+  sleep 1
 }
 
 teamviewer_ready() {
@@ -67,6 +73,7 @@ APT_OPTS=(
   -o Dpkg::Options::=--force-confold
 )
 
+stop_packagekit
 if ! apt-get update; then
   echo "VAROVANI: apt-get update selhal."
   if [[ ! -f "$DEB" ]]; then

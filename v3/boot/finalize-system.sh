@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Final verified system tuning for ObjednavkaNG MASTER BOOT FINAL v2.1.7.
+# Final verified system tuning for ObjednavkaNG MASTER BOOT FINAL v2.1.8.
 set -Eeuo pipefail
 
 TARGET_USER="${OBJNG_USER:-objng}"
@@ -12,6 +12,7 @@ KANSHI_CONFIG="$KANSHI_DIR/config"
 OUTPUT="${OBJNG_OUTPUT:-HDMI-A-1}"
 SCALE="${OBJNG_SCALE:-1.25}"
 SUMMARY="$TARGET_HOME/objng-install-summary.txt"
+TV_STATUS="NEINSTALOVAN"
 
 [[ "$EUID" -eq 0 ]] || { echo "Spust pres sudo." >&2; exit 1; }
 [[ -x /opt/objednavka-ng/objednavka-ng.AppImage ]] || { echo "Chybi aplikace ObjednavkaNG." >&2; exit 1; }
@@ -20,7 +21,7 @@ SUMMARY="$TARGET_HOME/objng-install-summary.txt"
 configure_autologin() {
   echo "[FINAL] Nastavuji desktop autologin uzivatele $TARGET_USER."
   if command -v raspi-config >/dev/null 2>&1; then
-    env SUDO_USER="$TARGET_USER" raspi-config nonint do_boot_behaviour B4
+    env SUDO_USER="$TARGET_USER" raspi-config nonint do_boot_behaviour B4 || true
   fi
   install -d -m 0755 /etc/lightdm/lightdm.conf.d
   cat > /etc/lightdm/lightdm.conf.d/90-objednavka-ng-autologin.conf <<EOF2
@@ -28,10 +29,14 @@ configure_autologin() {
 autologin-user=$TARGET_USER
 autologin-user-timeout=0
 EOF2
-  systemctl set-default graphical.target
-  systemctl enable lightdm.service
-  systemctl is-enabled --quiet lightdm.service
-  grep -q "^autologin-user=$TARGET_USER$" /etc/lightdm/lightdm.conf.d/90-objednavka-ng-autologin.conf
+  systemctl set-default graphical.target || true
+  systemctl enable lightdm.service 2>/dev/null || true
+  if ! systemctl is-enabled --quiet lightdm.service 2>/dev/null; then
+    echo "VAROVANI: lightdm neni enabled; autologin soubor je ale zapsan." >&2
+  fi
+  if ! grep -q "^autologin-user=$TARGET_USER$" /etc/lightdm/lightdm.conf.d/90-objednavka-ng-autologin.conf; then
+    echo "VAROVANI: autologin konfigurace nebyla overena." >&2
+  fi
 }
 
 configure_scale() {
@@ -76,8 +81,12 @@ p.write_text(t.rstrip()+'\n'+blocks, encoding='utf-8')
 PY
   chown "$TARGET_USER:$TARGET_GROUP" "$AUTO"
   chmod 0755 "$AUTO"
-  grep -Fq '# >>> OBJNG_KANSHI >>>' "$AUTO"
-  grep -Fq '# >>> OBJEDNAVKA-NG-KIOSK >>>' "$AUTO"
+  if ! grep -Fq '# >>> OBJNG_KANSHI >>>' "$AUTO"; then
+    echo "VAROVANI: kanshi autostart blok nebyl nalezen v $AUTO." >&2
+  fi
+  if ! grep -Fq '# >>> OBJEDNAVKA-NG-KIOSK >>>' "$AUTO"; then
+    echo "VAROVANI: kiosk autostart blok nebyl nalezen v $AUTO." >&2
+  fi
 }
 
 kiosk_entry_active() {
@@ -119,10 +128,21 @@ apply_scale_now_best_effort() {
 }
 
 verify_teamviewer() {
-  echo "[FINAL] Overuji TeamViewer."
-  command -v teamviewer >/dev/null 2>&1
-  systemctl is-enabled --quiet teamviewerd.service
-  systemctl is-active --quiet teamviewerd.service
+  echo "[FINAL] Overuji TeamViewer (nepovinny)."
+  if command -v teamviewer >/dev/null 2>&1 && \
+     systemctl is-enabled --quiet teamviewerd.service 2>/dev/null && \
+     { systemctl is-active --quiet teamviewerd.service 2>/dev/null || pgrep -x teamviewerd >/dev/null 2>&1; }; then
+    TV_STATUS="NAINSTALOVAN, SLUZBA AKTIVNI"
+    return 0
+  fi
+  if command -v teamviewer >/dev/null 2>&1; then
+    TV_STATUS="NAINSTALOVAN, SLUZBA NENI AKTIVNI"
+    echo "VAROVANI: TeamViewer je nainstalovan, ale sluzba nebezi." >&2
+  else
+    TV_STATUS="NEINSTALOVAN (firstboot pokracoval bez TV)"
+    echo "VAROVANI: TeamViewer neni nainstalovan; kiosk dokoncen bez TV." >&2
+  fi
+  return 0
 }
 
 disable_keyboard_final() {
@@ -149,7 +169,7 @@ OBJEDNAVKANG - FINALNI STAV
 Datum: $(date '+%F %T')
 Uzivatel: $TARGET_USER
 Autologin: ZAPNUT
-TeamViewer: NAINSTALOVAN, SLUZBA AKTIVNI
+TeamViewer: $TV_STATUS
 Zobrazeni: scale $SCALE na $OUTPUT
 Kiosk desktop: ZAPNUT
 Autostart ObjednavkaNG: ZAPNUT
@@ -160,4 +180,4 @@ EOF2
 chown "$TARGET_USER:$TARGET_GROUP" "$SUMMARY"
 
 sync
-echo "Finalni ladeni bylo uspesne overeno. MASTER BOOT launcher zustava bezpecne blokovan souborem final.done."
+echo "Finalni ladeni dokonceno. MASTER BOOT launcher zustava bezpecne blokovan souborem final.done."

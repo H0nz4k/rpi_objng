@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reset MASTER BOOT FINAL v2.1.7 zpet pred kalibraci.
+# Reset MASTER BOOT FINAL v2.1.8 zpet pred kalibraci.
 # Pouziti:
 #   sudo reset-objng-firstboot           # soft reset (firstboot od kalibrace)
 #   sudo reset-objng-firstboot --factory # + smaze /opt/objednavka-ng a ikony na ploche
@@ -54,6 +54,7 @@ rm -f /etc/udev/rules.d/99-3m-touch-calibration.rules
 udevadm control --reload-rules 2>/dev/null || true
 
 rm -f /tmp/objng-firstboot-install.lock
+rm -f "$STATE/firstboot-install.lock"
 rm -f "$TARGET_HOME/objng_firstboot_install.log" \
       "$TARGET_HOME/objng_egtouch_install.log" \
       "$TARGET_HOME/objng_teamviewer_install.log" \
@@ -113,7 +114,7 @@ runuser -u "$TARGET_USER" -- gsettings set org.gnome.desktop.a11y.applications s
 chown -R "$TARGET_USER:$TARGET_GROUP" "$TARGET_HOME/.local/state" "$TARGET_HOME/.config/labwc" 2>/dev/null || true
 sync
 
-echo "MASTER BOOT FINAL v2.1.7 byl resetovan pred kalibraci."
+echo "MASTER BOOT FINAL v2.1.8 byl resetovan pred kalibraci."
 if [[ "$FACTORY" -eq 1 ]]; then
   echo "Factory reset: /opt/objednavka-ng byl smazan, firstboot nainstaluje znovu z payloadu v IMG."
 fi

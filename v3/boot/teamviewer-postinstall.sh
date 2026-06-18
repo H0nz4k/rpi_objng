@@ -3,7 +3,10 @@
 set -Eeuo pipefail
 
 [[ "$EUID" -eq 0 ]] || { echo "Spust pres sudo." >&2; exit 1; }
-command -v teamviewer >/dev/null 2>&1 || { echo "TeamViewer neni nainstalovan." >&2; exit 1; }
+if ! command -v teamviewer >/dev/null 2>&1; then
+  echo "VAROVANI: TeamViewer neni nainstalovan; postinstall preskocen." >&2
+  exit 0
+fi
 
 TARGET_USER="${OBJNG_USER:-objng}"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
