@@ -1,28 +1,31 @@
 #!/usr/bin/env bash
 # Sestavi nazev zarizeni pro TeamViewer: "<lokalita>, RPIbox"
+# Postfix ", RPIbox" je VZDY – uzivatel zadava jen zacatek (lokalitu).
 set -Eeuo pipefail
 
+TV_ALIAS_SUFFIX=", RPIbox"
+
 format_teamviewer_alias() {
-  local raw="${1:-}" suffix="RPIbox"
+  local raw="${1:-}"
   raw="${raw//$'\r'/}"
   raw="${raw//$'\n'/}"
   raw="${raw#"${raw%%[![:space:]]*}"}"
   raw="${raw%"${raw##*[![:space:]]}"}"
   [[ -n "$raw" ]] || return 1
-  if [[ "$raw" == *","* ]]; then
+
+  # Uz kompletni tvar (Liberec, RPIbox)
+  if [[ "$raw" == *", "* ]]; then
     echo "$raw"
     return 0
   fi
-  if [[ "${raw,,}" == "rpibox" ]]; then
-    echo "RPIbox"
-    return 0
-  fi
-  echo "${raw}, ${suffix}"
+
+  # Jen zacatek bez postfixu -> doplnit ", RPIbox"
+  echo "${raw}${TV_ALIAS_SUFFIX}"
 }
 
-# Vypis alias na stdout; pri neuspechu vrati 1.
 resolve_teamviewer_alias() {
-  local preset="" config="" loc=""
+  local preset="" config=""
+
   if [[ -n "${TEAMVIEWER_ALIAS:-}" ]]; then
     format_teamviewer_alias "$TEAMVIEWER_ALIAS" && return 0
   fi
@@ -60,9 +63,7 @@ PY
       return 0
     fi
   fi
-  loc="$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)"
-  [[ -n "$loc" ]] || return 1
-  echo "$loc"
+  return 1
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

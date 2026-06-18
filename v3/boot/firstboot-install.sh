@@ -225,8 +225,14 @@ configure_teamviewer_alias() {
 
   if [[ -s "$alias_file" ]]; then
     preset="$(tr -d '\r\n' < "$alias_file")"
-    if [[ "$preset" == *","* ]]; then
-      export TEAMVIEWER_ALIAS="$preset"
+    preset="${preset#"${preset%%[![:space:]]*}"}"
+    preset="${preset%"${preset##*[![:space:]]}"}"
+    if [[ -n "$preset" && "${preset,,}" != "rpibox" ]]; then
+      if [[ "$preset" == *","* ]]; then
+        export TEAMVIEWER_ALIAS="$preset"
+      else
+        export TEAMVIEWER_ALIAS="${preset}, RPIbox"
+      fi
       echo "TeamViewer nazev z baliku: $TEAMVIEWER_ALIAS"
       return 0
     fi
@@ -234,22 +240,22 @@ configure_teamviewer_alias() {
 
   enable_keyboard
   echo
-  echo "Nazev v TeamVieweru bude ve tvaru: '<lokalita>, RPIbox'"
-  echo "Priklad: zadas 'Liberec' -> 'Liberec, RPIbox'"
-  echo "Enter bez textu = pouze 'RPIbox'."
-  printf "Lokalita: "
-  IFS= read -r loc || loc=""
-  loc="${loc#"${loc%%[![:space:]]*}"}"
-  loc="${loc%"${loc##*[![:space:]]}"}"
-
-  if [[ -n "$loc" ]]; then
-    export TEAMVIEWER_ALIAS="${loc}, RPIbox"
-  else
-    export TEAMVIEWER_ALIAS="RPIbox"
-  fi
+  echo "Zadej nazev lokality (zacatek). Postfix je vzdy ', RPIbox'."
+  echo "Priklad: Liberec -> Liberec, RPIbox"
+  loc=""
+  while [[ -z "$loc" ]]; do
+    printf "Lokalita: "
+    IFS= read -r loc || loc=""
+    loc="${loc#"${loc%%[![:space:]]*}"}"
+    loc="${loc%"${loc##*[![:space:]]}"}"
+    if [[ -z "$loc" ]]; then
+      echo "Zadej prosim nazev lokality (napr. Liberec)."
+    fi
+  done
+  export TEAMVIEWER_ALIAS="${loc}, RPIbox"
   echo "TeamViewer nazev: $TEAMVIEWER_ALIAS"
   mkdir -p "$(dirname "$alias_file")"
-  printf '%s\n' "$TEAMVIEWER_ALIAS" > "$alias_file" 2>/dev/null || true
+  printf '%s\n' "$loc" > "$alias_file" 2>/dev/null || true
   chmod 600 "$alias_file" 2>/dev/null || true
 }
 
