@@ -67,6 +67,7 @@ for f in \
   [[ -s "$BIN_SRC/$f" ]] || { echo "Chybi $BIN_SRC/$f" >&2; exit 1; }
   install -m 0755 -o "$TARGET_USER" -g "$TARGET_GROUP" "$BIN_SRC/$f" "$TARGET_HOME/bin/$f"
 done
+find "$TARGET_HOME/bin" -name '*.sh' -exec sed -i 's/\r$//' {} \;
 
 rm -rf "$PAYLOAD_DST"
 install -d -m 0755 -o "$TARGET_USER" -g "$TARGET_GROUP" "$PAYLOAD_DST"
@@ -74,6 +75,7 @@ cp -a "$PAYLOAD_SRC/." "$PAYLOAD_DST/"
 chown -R "$TARGET_USER:$TARGET_GROUP" "$PAYLOAD_DST"
 find "$PAYLOAD_DST" -type d -exec chmod 0755 {} +
 find "$PAYLOAD_DST" -type f -name '*.sh' -exec chmod 0755 {} +
+find "$PAYLOAD_DST" -name '*.sh' -exec sed -i 's/\r$//' {} \;
 chmod 0755 "$PAYLOAD_DST/app/objednavka-ng.AppImage"
 
 # Volitelne neverejne TeamViewer secret soubory (0600).
