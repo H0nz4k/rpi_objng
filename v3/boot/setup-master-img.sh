@@ -31,6 +31,28 @@ TV_URL="https://download.teamviewer.com/download/linux/teamviewer-host_arm64.deb
 [[ -n "$TARGET_HOME" && -d "$TARGET_HOME" ]] || { echo "Nenalezen uzivatel $TARGET_USER" >&2; exit 1; }
 [[ -s "$PAYLOAD_SRC/app/objednavka-ng.AppImage" ]] || { echo "Chybi AppImage v baliku." >&2; exit 1; }
 
+MASTER_IMG_PREP=0
+for arg in "$@"; do
+  case "$arg" in
+    --master-img|--poweroff|-poweroff)
+      MASTER_IMG_PREP=1
+      ;;
+    -h|--help)
+      cat <<'EOF2'
+Pouziti: sudo ./setup-master-img.sh [--master-img]
+
+  (bez flagu)     pripravi kartu, na konci vypise instrukce (sync && poweroff rucne)
+  --master-img    stejne + automaticky sync && poweroff (pro vytvoreni IMG)
+
+POZOR: na master kartu pred naimagovanim NIKDY nespoustej reboot –
+       spustil by se firstboot (kalibrace touch).
+Na klonu z IMG firstboot zacne automaticky pri prvnim bootu.
+EOF2
+      exit 0
+      ;;
+  esac
+done
+
 echo "============================================================"
 echo " ObjednavkaNG MASTER BOOT v$VERSION"
 echo "============================================================"
@@ -258,5 +280,16 @@ chown -R "$TARGET_USER:$TARGET_GROUP" "$TARGET_HOME/bin" "$BOOT_ROOT" "$TARGET_H
 
 echo
 echo "Hotovo. MASTER BOOT v$VERSION je pripraven v IMG."
-echo "Pro vytvoreni master IMG bez spusteni firstbootu: sync && sudo poweroff"
+if [[ "$MASTER_IMG_PREP" -eq 1 ]]; then
+  echo
+  echo "============================================================"
+  echo " Master IMG rezim: vypinam zarizeni (poweroff)."
+  echo " Kartu vyjmi a vytvor IMG. Firstboot zacne az na klonu."
+  echo "============================================================"
+  sync
+  poweroff
+  exit 0
+fi
+echo "Pro vytvoreni master IMG bez spusteni firstbootu: sudo ./setup-master-img.sh --master-img"
+echo "Nebo rucne: sync && sudo poweroff"
 echo "POZOR: sudo reboot na master kartu spusti firstboot touch kalibraci."
