@@ -1,5 +1,10 @@
 ﻿#!/usr/bin/env bash
 # ObjednavkaNG MASTER BOOT FINAL v2.1.6
+
+# Guard: CRLF fix + zajistit bash (ne sh/dash)
+if grep -qP '\r' "$0" 2>/dev/null; then sed -i 's/\r//' "$0"; exec bash "$0" "$@"; fi
+if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
+
 set -Eeuo pipefail
 
 VERSION="2.1.6"
@@ -95,14 +100,15 @@ touch_phase() {
     run_calibration_and_reboot
   fi
 
-  banner "FAZE 2 - overeni kalibrace a fullscreen touch test"
-  if ! "$TOUCH_TOOL" --verify; then
-    echo "Kalibrace neni nactena. Mazou se hodnoty a kalibrace se opakuje."
-    "$TOUCH_TOOL" --reset || true
-    run_calibration_and_reboot
-  fi
+  banner "FAZE 2 - fullscreen touch test (overeni kalibrace)"
+  # Kalibrace byla ulozena (CAL_PENDING existuje po rebootu).
+  # Aplikujeme udev pravidla a rovnou spustime 4-bodovy test.
+  # --verify pres udevadm je na labwc/Wayland nespolehlave, test je lepsi overeni.
+  sudo -n udevadm control --reload-rules 2>/dev/null || true
+  sudo -n udevadm trigger --subsystem-match=input --action=change 2>/dev/null || true
+  sleep 2
 
-  echo "Kalibrace je nactena. Spoustim fullscreen test se 4 body."
+  echo "Spoustim fullscreen test se 4 body (kliknete do vsech rohů)."
   local test_rc=0
   timeout --signal=TERM --kill-after=5 180 \
     env DISPLAY="${DISPLAY:-:0}" XAUTHORITY="${XAUTHORITY:-$USER_HOME/.Xauthority}" \
