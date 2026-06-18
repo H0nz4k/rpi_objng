@@ -60,7 +60,7 @@ install -d -m 0755 -o "$TARGET_USER" -g "$TARGET_GROUP" \
 
 for f in \
   firstboot-install.sh touch-bootstrap.sh touch-test.py touch_calibrator_v3.py \
-  labwc-fullscreen.sh labwc_tk_helper.py restore-boot-terminal.sh \
+  labwc-fullscreen.sh labwc_tk_helper.py restore-boot-terminal.sh teamviewer-resolve-alias.sh \
   install-egalax-eeti-bootstrap.sh install-local-core.sh install-teamviewer.sh \
   teamviewer-postinstall.sh apply-public-update.sh finalize-system.sh system-update.sh \
   verify-final-state.sh reset-objng-firstboot.sh; do
@@ -109,9 +109,13 @@ chmod 0440 /etc/sudoers.d/010-objng-firstboot-nopasswd
 visudo -cf /etc/sudoers.d/010-objng-firstboot-nopasswd
 
 # Oprava sudo varovani "unable to resolve host"
-HOSTNAME="$(hostname 2>/dev/null || true)"
-if [[ -n "$HOSTNAME" ]] && ! grep -qE "[[:space:]]$HOSTNAME([[:space:]]|$)" /etc/hosts 2>/dev/null; then
-  grep -q '127.0.1.1' /etc/hosts || echo "127.0.1.1 $HOSTNAME" >> /etc/hosts
+HOSTNAME="$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)"
+if [[ -n "$HOSTNAME" ]]; then
+  if grep -qE '^127\.0\.1\.1[[:space:]]' /etc/hosts 2>/dev/null; then
+    sed -i "s/^127\.0\.1\.1[[:space:]].*/127.0.1.1\t${HOSTNAME}/" /etc/hosts 2>/dev/null || true
+  elif ! grep -qE "[[:space:]]${HOSTNAME}([[:space:]]|$)" /etc/hosts 2>/dev/null; then
+    printf '127.0.1.1\t%s\n' "$HOSTNAME" >> /etc/hosts
+  fi
 fi
 
 configure_touch_access() {

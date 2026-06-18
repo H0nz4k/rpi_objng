@@ -11,11 +11,28 @@ LOG="$TARGET_HOME/objng_teamviewer_install.log"
 [[ "$EUID" -eq 0 ]] || { echo "Spust pres sudo." >&2; exit 1; }
 exec > >(tee -a "$LOG") 2>&1
 
-verify_teamviewer() {
+fix_hosts_for_sudo() {
+  local hn
+  hn="$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)"
+  [[ -n "$hn" ]] || return 0
+  if grep -qE '^127\.0\.1\.1[[:space:]]' /etc/hosts 2>/dev/null; then
+    sed -i "s/^127\.0\.1\.1[[:space:]].*/127.0.1.1\t${hn}/" /etc/hosts 2>/dev/null || true
+  elif ! grep -qE "[[:space:]]${hn}([[:space:]]|$)" /etc/hosts 2>/dev/null; then
+    printf '127.0.1.1\t%s\n' "$hn" >> /etc/hosts
+  fi
+}
+
+teamviewer_ready() {
   command -v teamviewer >/dev/null 2>&1 || return 1
-  dpkg-query -W -f='${Status}\n' 'teamviewer*' 2>/dev/null | grep -q 'install ok installed' || return 1
-  systemctl is-enabled --quiet teamviewerd.service || return 1
-  systemctl is-active --quiet teamviewerd.service || return 1
+  dpkg-query -W -f='${Status}\n' teamviewer-host 2>/dev/null | grep -q 'install ok installed' || \
+    dpkg-query -W -f='${Status}\n' 'teamviewer*' 2>/dev/null | grep -q 'install ok installed' || return 1
+  pgrep -x teamviewerd >/dev/null 2>&1 && return 0
+  systemctl is-active --quiet teamviewerd.service 2>/dev/null && return 0
+  systemctl is-active teamviewerd.service 2>/dev/null | grep -qE '^(active|activating)$'
+}
+
+verify_teamviewer() {
+  teamviewer_ready
 }
 
 if verify_teamviewer; then
@@ -23,6 +40,8 @@ if verify_teamviewer; then
   teamviewer info 2>/dev/null || true
   exit 0
 fi
+
+fix_hosts_for_sudo
 
 mkdir -p "$PAYLOAD_DIR"
 DEB="$(find "$PAYLOAD_DIR" -maxdepth 1 -type f \
@@ -72,7 +91,7 @@ systemctl daemon-reload
 systemctl enable teamviewerd.service
 systemctl restart teamviewerd.service
 
-for _ in $(seq 1 30); do
+for _ in $(seq 1 45); do
   if verify_teamviewer; then
     echo "TeamViewer byl uspesne nainstalovan a sluzba teamviewerd bezi."
     teamviewer info 2>/dev/null || true
@@ -81,6 +100,14 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
-echo "CHYBA: TeamViewer se nainstaloval, ale sluzba teamviewerd neni aktivni." >&2
+if pgrep -x teamviewerd >/dev/null 2>&1 || \
+   dpkg-query -W -f='${Status}\n' teamviewer-host 2>/dev/null | grep -q 'install ok installed'; then
+  echo "VAROVANI: teamviewerd nespustil is-active v casovem limitu, ale balik/proces existuje – pokracuji."
+  systemctl start teamviewerd.service 2>/dev/null || true
+  teamviewer info 2>/dev/null || true
+  exit 0
+fi
+
+echo "CHYBA: TeamViewer se nepodarilo spustit." >&2
 systemctl status teamviewerd.service --no-pager || true
 exit 1

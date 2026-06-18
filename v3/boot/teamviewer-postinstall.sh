@@ -19,25 +19,10 @@ read_secret() {
 }
 
 resolve_alias() {
-  local alias="" config
-  alias="$(read_secret "$ALIAS_SECRET" 2>/dev/null || true)"
-  if [[ -n "$alias" ]]; then
-    echo "$alias"
-    return 0
-  fi
-  config="$(readlink -f "$CONFIG_LINK" 2>/dev/null || echo "$CONFIG_LINK")"
-  if [[ -f "$config" ]]; then
-    alias="$(python3 - "$config" <<'PY'
-import json, sys
-try:
-    v = str(json.load(open(sys.argv[1], encoding="utf-8")).get("PCBOX_NAME") or "").strip()
-except Exception:
-    v = ""
-if v and "NASTAV" not in v.upper() and "SPRAVN" not in v.upper():
-    print(v)
-PY
-)"
-    [[ -n "$alias" ]] && { echo "$alias"; return 0; }
+  local helper="$TARGET_HOME/bin/teamviewer-resolve-alias.sh"
+  if [[ -x "$helper" ]]; then
+    TEAMVIEWER_ALIAS_SECRET="$ALIAS_SECRET" TEAMVIEWER_CONFIG="$(readlink -f "$CONFIG_LINK" 2>/dev/null || echo "$CONFIG_LINK")" \
+      "$helper" && return 0
   fi
   hostname
 }

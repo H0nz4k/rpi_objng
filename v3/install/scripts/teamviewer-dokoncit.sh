@@ -17,26 +17,12 @@ if [[ -z "$ASSIGNMENT_ID" && -s "$SECRET_FILE" ]]; then
 fi
 
 resolve_alias() {
-  local alias=""
-  if [[ -s "$ALIAS_SECRET" ]]; then
-    alias="$(tr -d '\r\n' < "$ALIAS_SECRET")"
-    [[ -n "$alias" ]] && { echo "$alias"; return 0; }
+  local helper="${HOME}/bin/teamviewer-resolve-alias.sh"
+  if [[ -x "$helper" ]]; then
+    TEAMVIEWER_ALIAS_SECRET="$ALIAS_SECRET" TEAMVIEWER_CONFIG="$CONFIG" \
+      "$helper" && return 0
   fi
-  alias="$(hostname)"
-  if [[ -f "$CONFIG" ]]; then
-    cfg_alias="$(python3 - "$CONFIG" <<'PY'
-import json, sys
-try:
-    v = str(json.load(open(sys.argv[1], encoding="utf-8")).get("PCBOX_NAME") or "").strip()
-except Exception:
-    v = ""
-if v and "NASTAV" not in v.upper() and "SPRAVN" not in v.upper():
-    print(v)
-PY
-)"
-    [[ -n "$cfg_alias" ]] && alias="$cfg_alias"
-  fi
-  echo "$alias"
+  hostname
 }
 
 if [[ -z "$ASSIGNMENT_ID" ]]; then

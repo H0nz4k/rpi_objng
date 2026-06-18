@@ -219,6 +219,40 @@ teamviewer_deb_exists() {
     -print -quit 2>/dev/null | grep -q .
 }
 
+configure_teamviewer_alias() {
+  local alias_file="$USER_HOME/bootstrap/v2/secrets/teamviewer-alias"
+  local preset="" loc=""
+
+  if [[ -s "$alias_file" ]]; then
+    preset="$(tr -d '\r\n' < "$alias_file")"
+    if [[ "$preset" == *","* ]]; then
+      export TEAMVIEWER_ALIAS="$preset"
+      echo "TeamViewer nazev z baliku: $TEAMVIEWER_ALIAS"
+      return 0
+    fi
+  fi
+
+  enable_keyboard
+  echo
+  echo "Nazev v TeamVieweru bude ve tvaru: '<lokalita>, RPIbox'"
+  echo "Priklad: zadas 'Liberec' -> 'Liberec, RPIbox'"
+  echo "Enter bez textu = pouze 'RPIbox'."
+  printf "Lokalita: "
+  IFS= read -r loc || loc=""
+  loc="${loc#"${loc%%[![:space:]]*}"}"
+  loc="${loc%"${loc##*[![:space:]]}"}"
+
+  if [[ -n "$loc" ]]; then
+    export TEAMVIEWER_ALIAS="${loc}, RPIbox"
+  else
+    export TEAMVIEWER_ALIAS="RPIbox"
+  fi
+  echo "TeamViewer nazev: $TEAMVIEWER_ALIAS"
+  mkdir -p "$(dirname "$alias_file")"
+  printf '%s\n' "$TEAMVIEWER_ALIAS" > "$alias_file" 2>/dev/null || true
+  chmod 600 "$alias_file" 2>/dev/null || true
+}
+
 install_teamviewer_phase() {
   [[ -f "$TEAMVIEWER_DONE" ]] && return 0
 
@@ -232,15 +266,26 @@ install_teamviewer_phase() {
   fi
 
   banner "FAZE 3 - instalace a nastaveni TeamVieweru"
+  set +e
   sudo -n "$USER_HOME/bin/install-teamviewer.sh"
+  local tv_rc=$?
+  set -e
+  if [[ "$tv_rc" -ne 0 ]]; then
+    if command -v teamviewer >/dev/null 2>&1 || sudo -n pgrep -x teamviewerd >/dev/null 2>&1; then
+      echo "VAROVANI: install-teamviewer skoncil kod $tv_rc, ale TeamViewer bezi – pokracuji."
+    else
+      echo "VAROVANI: instalace TeamVieweru selhala (kod $tv_rc). Pokracuji firstboot bez TV."
+      touch "$TEAMVIEWER_DONE"
+      return 0
+    fi
+  fi
 
-  command -v teamviewer >/dev/null 2>&1
-  sudo -n systemctl is-active --quiet teamviewerd.service
+  configure_teamviewer_alias
 
-  sudo -n "$USER_HOME/bin/teamviewer-postinstall.sh"
+  sudo -n env TEAMVIEWER_ALIAS="${TEAMVIEWER_ALIAS:-}" "$USER_HOME/bin/teamviewer-postinstall.sh"
 
   if [[ -s "$USER_HOME/bootstrap/v2/secrets/teamviewer-assignment-id" ]]; then
-    if teamviewer-dokoncit; then
+    if env TEAMVIEWER_ALIAS="${TEAMVIEWER_ALIAS:-}" teamviewer-dokoncit; then
       rm -f "$STATE/teamviewer.assignment-pending"
     else
       echo "VAROVANI: TeamViewer je nainstalovany, assignment se nepodaril."
