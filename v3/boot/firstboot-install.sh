@@ -115,6 +115,17 @@ touch_phase() {
     "$USER_HOME/bin/labwc-fullscreen.sh" "ObjednavkaNG - test dotyku" ObjngTouchTest \
     "$TOUCH_TEST" || test_rc=$?
 
+  # labwc-fullscreen obnovi terminal; pro jistotu jeste jednou
+  if command -v wlrctl >/dev/null 2>&1; then
+    for spec in app_id:objng-master-boot identifier:objng-master-boot "title:ObjednavkaNG MASTER BOOT*"; do
+      if wlrctl toplevel find "$spec" >/dev/null 2>&1; then
+        wlrctl toplevel focus "$spec" state:minimized 2>/dev/null || wlrctl toplevel focus "$spec" 2>/dev/null || true
+        break
+      fi
+    done
+  fi
+  clear
+
   if [[ "$test_rc" -eq 0 ]]; then
     rm -f "$CAL_PENDING"
     touch "$TOUCH_DONE"

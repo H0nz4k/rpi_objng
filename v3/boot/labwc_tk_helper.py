@@ -70,6 +70,18 @@ def minimize_boot_terminal() -> None:
             return
 
 
+def restore_boot_terminal() -> None:
+    for spec in (
+        "app_id:objng-master-boot",
+        "identifier:objng-master-boot",
+        "title:ObjednavkaNG MASTER BOOT*",
+    ):
+        if wlrctl_find(spec):
+            _wlrctl("toplevel", "focus", spec, "state:minimized")
+            _wlrctl("toplevel", "focus", spec)
+            return
+
+
 def schedule_labwc_fullscreen(
     root: tk.Misc,
     *,

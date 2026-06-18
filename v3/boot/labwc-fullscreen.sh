@@ -22,6 +22,24 @@ minimize_boot_terminal() {
   done
 }
 
+restore_boot_terminal() {
+  command -v wlrctl >/dev/null 2>&1 || return 0
+  local spec
+  for spec in \
+    "app_id:objng-master-boot" \
+    "identifier:objng-master-boot" \
+    "title:ObjednavkaNG MASTER BOOT*"
+  do
+    if wlrctl toplevel find "$spec" >/dev/null 2>&1; then
+      # focus obnovi okno z taskbaru (labwc nema primo unminimize)
+      wlrctl toplevel focus "$spec" state:minimized 2>/dev/null || \
+        wlrctl toplevel focus "$spec" 2>/dev/null || true
+      wlrctl toplevel focus "$spec" 2>/dev/null || true
+      return 0
+    fi
+  done
+}
+
 apply_fullscreen() {
   command -v wlrctl >/dev/null 2>&1 || return 1
   local spec
@@ -56,4 +74,5 @@ if command -v wlrctl >/dev/null 2>&1; then
 fi
 
 wait "$pid"
+restore_boot_terminal
 exit $?
