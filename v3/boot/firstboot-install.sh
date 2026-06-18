@@ -452,7 +452,13 @@ system_update_phase() {
   wait_for_internet_or_skip_system_update || return 0
   banner "FAZE 4 - instaluji vsechny systemove aktualizace"
   echo "Tento krok muze trvat dele. Zarizeni nevypinej."
+  set +e
   sudo -n "$USER_HOME/bin/system-update.sh"
+  local su_rc=$?
+  set -e
+  if [[ "$su_rc" -ne 0 ]]; then
+    echo "VAROVANI: systemove aktualizace skoncily kodem $su_rc. Pokracuji do faze 5."
+  fi
   touch "$SYSTEM_UPDATE_DONE"
 }
 
