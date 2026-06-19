@@ -7,7 +7,7 @@ if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 
 set -Eeuo pipefail
 
-VERSION="2.1.9"
+VERSION="2.1.10"
 USER_HOME="/home/objng"
 STATE="$USER_HOME/.local/state/objng-master-bootstrap"
 TOUCH_DONE="$STATE/touch.done"
@@ -357,93 +357,26 @@ install_teamviewer_phase() {
   touch "$TEAMVIEWER_DONE"
 }
 
-countdown_update_question() {
-  local seconds="${OBJNG_UPDATE_PROMPT_SECONDS:-5}"
-  local key=""
-  # Vychozi: rychle preskocit (5 s). Pro 20 s: OBJNG_UPDATE_PROMPT_SECONDS=20
-  while (( seconds > 0 )); do
-    printf '\rStahnout nejnovější update z public serveru? Automaticky NE za %2d s. [A] ano [N/X] ne/preskocit: ' "$seconds"
-    key="$(read_prompt_key 2>/dev/null || true)"
-    if [[ -n "$key" ]]; then
-      printf '\n'
-      case "${key^^}" in
-        A|P) return 0 ;;
-        N|X) return 1 ;;
-      esac
-    fi
-    sleep 1
-    seconds=$((seconds - 1))
-  done
-  printf '\nCas vyprsel. Automaticky volim NE.\n'
-  return 1
-}
-
 apply_update_phase() {
   [[ -f "$UPDATE_DONE" ]] && return 0
-  if [[ "${OBJNG_SKIP_PUBLIC_UPDATE:-0}" == "1" ]]; then
-    echo "Public update preskocen (OBJNG_SKIP_PUBLIC_UPDATE=1)."
-    touch "$UPDATE_DONE"
-    return 0
-  fi
-  banner "FAZE 3 - volitelna aktualizace z public serveru"
-  echo "URL: $UPDATE_URL"
-  echo "Aktualizace smi menit AppImage, pomocne skripty a splash. Config se neprepisuje."
-  echo
-
-  set +e
-  countdown_update_question
-  choice=$?
-  set -e
-  case "$choice" in
-    0) ;;
-    *)
-      echo "Aktualizace byla preskocena. Pokracuji dalsi fazi."
+  # Public CDN update docasne vypnuto (zadny odpoctet, zadne stahovani).
+  # Pozdeji rucne: OBJNG_PUBLIC_UPDATE=1 bash ~/bin/firstboot-install.sh
+  if [[ "${OBJNG_PUBLIC_UPDATE:-0}" == "1" ]]; then
+    banner "FAZE 3 - volitelna aktualizace z public serveru"
+    echo "URL: $UPDATE_URL"
+    wait_for_internet_or_skip 30 "aktualizace z CDN" || {
       touch "$UPDATE_DONE"
       return 0
-      ;;
-  esac
-
-  wait_for_internet_or_skip 30 "aktualizace z CDN" || {
-    echo "Aktualizace preskocena (bez internetu). Pokracuji dalsi fazi."
-    touch "$UPDATE_DONE"
-    return 0
-  }
-  rm -rf "$UPDATE_DIR"
-  mkdir -p "$UPDATE_DIR"
-
-  if ! wget --timeout=20 --tries=2 -O "$UPDATE_DIR/objng_update.tar.gz.tmp" "$UPDATE_URL"; then
-    echo "Update balik na serveru neexistuje nebo neni dostupny. Pokracuji bez aktualizace."
-    rm -f "$UPDATE_DIR/objng_update.tar.gz.tmp"
-    touch "$UPDATE_DONE"
-    sleep 2
-    return 0
-  fi
-  mv "$UPDATE_DIR/objng_update.tar.gz.tmp" "$UPDATE_DIR/objng_update.tar.gz"
-
-  if wget -q -O "$UPDATE_DIR/objng_update.tar.gz.sha256" "$UPDATE_URL.sha256"; then
-    expected="$(awk '{print $1}' "$UPDATE_DIR/objng_update.tar.gz.sha256" | head -1)"
-    actual="$(sha256sum "$UPDATE_DIR/objng_update.tar.gz" | awk '{print $1}')"
-    if [[ -n "$expected" && "$expected" != "$actual" ]]; then
-      echo "VAROVANI: SHA256 update baliku nesedi. Pokracuji bez aktualizace."
-      rm -rf "$UPDATE_DIR"
-      touch "$UPDATE_DONE"
-      return 0
-    fi
-  else
-    echo "VAROVANI: SHA256 soubor neni dostupny."
-  fi
-
-  mkdir -p "$UPDATE_DIR/unpacked"
-  if ! tar -xzf "$UPDATE_DIR/objng_update.tar.gz" -C "$UPDATE_DIR/unpacked" --strip-components=1; then
-    echo "VAROVANI: update balik nelze rozbalit. Pokracuji bez aktualizace."
+    }
     rm -rf "$UPDATE_DIR"
-    touch "$UPDATE_DONE"
-    return 0
-  fi
-  if ! sudo -n "$USER_HOME/bin/apply-public-update.sh" "$UPDATE_DIR/unpacked"; then
-    echo "VAROVANI: aplikace update selhala. Pokracuji bez aktualizace."
-    touch "$UPDATE_DONE"
-    return 0
+    mkdir -p "$UPDATE_DIR"
+    if wget --timeout=20 --tries=2 -O "$UPDATE_DIR/objng_update.tar.gz.tmp" "$UPDATE_URL"; then
+      mv "$UPDATE_DIR/objng_update.tar.gz.tmp" "$UPDATE_DIR/objng_update.tar.gz"
+      mkdir -p "$UPDATE_DIR/unpacked"
+      if tar -xzf "$UPDATE_DIR/objng_update.tar.gz" -C "$UPDATE_DIR/unpacked" --strip-components=1; then
+        sudo -n "$USER_HOME/bin/apply-public-update.sh" "$UPDATE_DIR/unpacked" || true
+      fi
+    fi
   fi
   touch "$UPDATE_DONE"
 }
